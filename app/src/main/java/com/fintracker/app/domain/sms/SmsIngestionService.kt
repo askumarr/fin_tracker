@@ -22,7 +22,11 @@ class SmsIngestionService @Inject constructor(
 
     suspend fun ingest(message: SmsMessage): Result {
         val parsed = parseEngine.parse(message) ?: return Result(null, false, false)
-        val accountId = accountRepository.findOrCreate(parsed.bankHint, parsed.maskedAccount)
+        val accountId = accountRepository.findOrCreate(
+            bankHint = parsed.bankHint,
+            masked = parsed.maskedAccount,
+            sender = parsed.sender
+        )
         val categoryId = transactionRepository.suggestCategory(parsed.merchant)
         val entity = TransactionEntity(
             amountPaise = parsed.amountPaise,

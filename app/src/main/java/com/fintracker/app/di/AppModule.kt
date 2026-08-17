@@ -10,6 +10,7 @@ import com.fintracker.app.data.dao.SmsSenderRuleDao
 import com.fintracker.app.data.dao.TransactionDao
 import com.fintracker.app.data.db.DatabaseSeeder
 import com.fintracker.app.data.db.FinTrackerDatabase
+import com.fintracker.app.data.repository.AccountRepository
 import com.fintracker.app.domain.sms.SmsParseEngine
 import com.fintracker.app.domain.sms.SmsTemplateLoader
 import dagger.Module
@@ -41,7 +42,10 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideSeeder(categoryDao: CategoryDao): DatabaseSeeder = DatabaseSeeder(categoryDao)
+    fun provideSeeder(
+        categoryDao: CategoryDao,
+        accountRepository: AccountRepository
+    ): DatabaseSeeder = DatabaseSeeder(categoryDao, accountRepository)
 
     @Provides
     @Singleton

@@ -18,6 +18,7 @@ import com.fintracker.app.data.entity.ImportJobEntity
 import com.fintracker.app.data.entity.MerchantCategoryRuleEntity
 import com.fintracker.app.data.entity.SmsSenderRuleEntity
 import com.fintracker.app.data.entity.TransactionEntity
+import com.fintracker.app.data.repository.AccountRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -80,12 +81,14 @@ object DefaultCategories {
 }
 
 class DatabaseSeeder(
-    private val categoryDao: CategoryDao
+    private val categoryDao: CategoryDao,
+    private val accountRepository: AccountRepository? = null
 ) {
     suspend fun seedIfNeeded() {
         if (categoryDao.count() == 0) {
             categoryDao.insertAll(DefaultCategories.all)
         }
+        accountRepository?.mergeDuplicates()
     }
 
     fun seedAsync() {

@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -111,9 +113,8 @@ fun AddEditScreen(
                 selectedId = state.categoryId,
                 onSelect = { viewModel.update { s -> s.copy(categoryId = it) } }
             )
-            DropdownField(
-                label = "Account",
-                options = accounts.map { it.id to it.name },
+            AccountPicker(
+                accounts = accounts.map { it.id to it.name },
                 selectedId = state.accountId,
                 onSelect = { viewModel.update { s -> s.copy(accountId = it) } }
             )
@@ -149,22 +150,53 @@ private fun DropdownField(
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(label, style = MaterialTheme.typography.labelLarge)
         Spacer(modifier = Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = selectedId == null,
-                onClick = { onSelect(null) },
-                label = { Text("None") }
-            )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                FilterChip(
+                    selected = selectedId == null,
+                    onClick = { onSelect(null) },
+                    label = { Text("None") }
+                )
+            }
+            items(options, key = { it.first }) { (id, name) ->
+                FilterChip(
+                    selected = selectedId == id,
+                    onClick = { onSelect(id) },
+                    label = { Text(name) }
+                )
+            }
         }
-        options.chunked(3).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { (id, name) ->
-                    FilterChip(
-                        selected = selectedId == id,
-                        onClick = { onSelect(id) },
-                        label = { Text(name) }
-                    )
-                }
+    }
+}
+
+@Composable
+private fun AccountPicker(
+    accounts: List<Pair<Long, String>>,
+    selectedId: Long?,
+    onSelect: (Long?) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text("Account / bank", style = MaterialTheme.typography.labelLarge)
+        Text(
+            "${accounts.size} saved · SMS reuses one entry per bank",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                FilterChip(
+                    selected = selectedId == null,
+                    onClick = { onSelect(null) },
+                    label = { Text("None") }
+                )
+            }
+            items(accounts, key = { it.first }) { (id, name) ->
+                FilterChip(
+                    selected = selectedId == id,
+                    onClick = { onSelect(id) },
+                    label = { Text(name) }
+                )
             }
         }
     }

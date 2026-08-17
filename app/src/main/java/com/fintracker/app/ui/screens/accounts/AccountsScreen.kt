@@ -29,7 +29,9 @@ import androidx.lifecycle.viewModelScope
 import com.fintracker.app.data.entity.AccountEntity
 import com.fintracker.app.data.repository.AccountRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -41,16 +43,32 @@ class AccountsViewModel @Inject constructor(
     val accounts = accountRepository.observeActive()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    private val _message = MutableStateFlow<String?>(null)
+    val message = _message.asStateFlow()
+
     fun add(name: String, bankHint: String, masked: String) {
-        if (name.isBlank()) return
         viewModelScope.launch {
-            accountRepository.insert(
-                AccountEntity(
-                    name = name.trim(),
-                    bankHint = bankHint.ifBlank { null },
-                    maskedNumber = masked.ifBlank { null }
-                )
-            )
+            val hint = bankHint.ifBlank { null } ?: name.ifBlank { null }
+            if (hint.isNullOrBlank() && masked.isBlank()) return@launch
+            val id = accountRepository.findOrCreate(hint, masked.ifBlank { null }) ?: return@launch
+            if (name.isNotBlank()) {
+                accountRepository.getById(id)?.let { existing ->
+                    if (existing.name != name.trim()) {
+                        accountRepository.update(existing.copy(name = name.trim()))
+                    }
+                }
+            }
+        }
+    }
+
+    fun mergeDuplicates() {
+        viewModelScope.launch {
+            val removed = accountRepository.mergeDuplicates()
+            _message.value = if (removed == 0) {
+                "No duplicate accounts found"
+            } else {
+                "Merged and removed $removed duplicate account(s)"
+            }
         }
     }
 
@@ -65,6 +83,7 @@ class AccountsViewModel @Inject constructor(
 @Composable
 fun AccountsScreen(viewModel: AccountsViewModel = hiltViewModel()) {
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val message by viewModel.message.collectAsStateWithLifecycle()
     var name by remember { mutableStateOf("") }
     var bank by remember { mutableStateOf("") }
     var masked by remember { mutableStateOf("") }
@@ -99,6 +118,11 @@ fun AccountsScreen(viewModel: AccountsViewModel = hiltViewModel()) {
                 viewModel.add(name, bank, masked)
                 name = ""; bank = ""; masked = ""
             }) { Text("Add account") }
+
+            TextButton(onClick = viewModel::mergeDuplicates) {
+                Text("Merge duplicate accounts")
+            }
+            message?.let { Text(it) }
 
             LazyColumn {
                 items(accounts, key = { it.id }) { acc ->

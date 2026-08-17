@@ -41,10 +41,10 @@ interface CategoryDao {
 
 @Dao
 interface AccountDao {
-    @Query("SELECT * FROM accounts WHERE isArchived = 0 ORDER BY name")
+    @Query("SELECT * FROM accounts WHERE isArchived = 0 ORDER BY name COLLATE NOCASE")
     fun observeActive(): Flow<List<AccountEntity>>
 
-    @Query("SELECT * FROM accounts ORDER BY name")
+    @Query("SELECT * FROM accounts ORDER BY name COLLATE NOCASE")
     suspend fun getAll(): List<AccountEntity>
 
     @Query("SELECT * FROM accounts WHERE id = :id")
@@ -56,8 +56,38 @@ interface AccountDao {
     @Update
     suspend fun update(account: AccountEntity)
 
-    @Query("SELECT * FROM accounts WHERE bankHint = :bankHint LIMIT 1")
+    @Query("DELETE FROM accounts WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query(
+        """
+        SELECT * FROM accounts
+        WHERE bankHint IS NOT NULL AND UPPER(TRIM(bankHint)) = UPPER(TRIM(:bankHint))
+        ORDER BY id ASC
+        LIMIT 1
+        """
+    )
     suspend fun findByBankHint(bankHint: String): AccountEntity?
+
+    @Query(
+        """
+        SELECT * FROM accounts
+        WHERE maskedNumber IS NOT NULL AND UPPER(TRIM(maskedNumber)) = UPPER(TRIM(:masked))
+        ORDER BY id ASC
+        LIMIT 1
+        """
+    )
+    suspend fun findByMasked(masked: String): AccountEntity?
+
+    @Query(
+        """
+        SELECT * FROM accounts
+        WHERE UPPER(TRIM(name)) = UPPER(TRIM(:name))
+        ORDER BY id ASC
+        LIMIT 1
+        """
+    )
+    suspend fun findByName(name: String): AccountEntity?
 }
 
 @Dao
@@ -95,6 +125,9 @@ interface TransactionDao {
 
     @Query("DELETE FROM transactions WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("UPDATE transactions SET accountId = :toId WHERE accountId = :fromId")
+    suspend fun reassignAccount(fromId: Long, toId: Long)
 
     @Query(
         """
