@@ -51,6 +51,8 @@ fun MoreScreen(
     onImport: () -> Unit,
     onBackup: () -> Unit,
     onReview: () -> Unit,
+    onBudgets: () -> Unit,
+    onRecurring: () -> Unit,
     viewModel: MoreViewModel = hiltViewModel()
 ) {
     val autoCapture by viewModel.autoCapture.collectAsStateWithLifecycle(initialValue = true)
@@ -85,6 +87,18 @@ fun MoreScreen(
                 headlineContent = { Text("Accounts") },
                 leadingContent = { Icon(Icons.Default.AccountBalance, null) },
                 trailingContent = { TextButton(onClick = onAccounts) { Text("Open") } }
+            )
+            ListItem(
+                headlineContent = { Text("Budgets") },
+                supportingContent = { Text("Category monthly limits & alerts") },
+                leadingContent = { Icon(Icons.Default.AccountBalance, null) },
+                trailingContent = { TextButton(onClick = onBudgets) { Text("Open") } }
+            )
+            ListItem(
+                headlineContent = { Text("Recurring") },
+                supportingContent = { Text("SIP, rent, EMI, subscriptions") },
+                leadingContent = { Icon(Icons.Default.RateReview, null) },
+                trailingContent = { TextButton(onClick = onRecurring) { Text("Open") } }
             )
             ListItem(
                 headlineContent = { Text("Import CSV") },

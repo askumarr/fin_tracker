@@ -24,11 +24,13 @@ import androidx.navigation.navArgument
 import com.fintracker.app.ui.screens.accounts.AccountsScreen
 import com.fintracker.app.ui.screens.addedit.AddEditScreen
 import com.fintracker.app.ui.screens.backup.BackupScreen
+import com.fintracker.app.ui.screens.budgets.BudgetsScreen
 import com.fintracker.app.ui.screens.categories.CategoriesScreen
 import com.fintracker.app.ui.screens.dashboard.DashboardScreen
 import com.fintracker.app.ui.screens.importcsv.ImportCsvScreen
 import com.fintracker.app.ui.screens.more.MoreScreen
 import com.fintracker.app.ui.screens.onboarding.OnboardingScreen
+import com.fintracker.app.ui.screens.recurring.RecurringScreen
 import com.fintracker.app.ui.screens.review.ReviewScreen
 import com.fintracker.app.ui.screens.transactions.TransactionsScreen
 
@@ -42,6 +44,8 @@ object Routes {
     const val Accounts = "accounts"
     const val ImportCsv = "import_csv"
     const val Backup = "backup"
+    const val Budgets = "budgets"
+    const val Recurring = "recurring"
     const val AddEdit = "add_edit?txnId={txnId}"
     fun addEdit(txnId: Long = -1L) = "add_edit?txnId=$txnId"
 }
@@ -156,7 +160,9 @@ fun FinTrackerNavHost(startOnboarding: Boolean) {
                     onAccounts = { navController.navigate(Routes.Accounts) },
                     onImport = { navController.navigate(Routes.ImportCsv) },
                     onBackup = { navController.navigate(Routes.Backup) },
-                    onReview = { navController.navigate(Routes.Review) }
+                    onReview = { navController.navigate(Routes.Review) },
+                    onBudgets = { navController.navigate(Routes.Budgets) },
+                    onRecurring = { navController.navigate(Routes.Recurring) }
                 )
             }
             composable(Routes.Review) {
@@ -165,6 +171,8 @@ fun FinTrackerNavHost(startOnboarding: Boolean) {
             composable(Routes.Accounts) { AccountsScreen() }
             composable(Routes.ImportCsv) { ImportCsvScreen() }
             composable(Routes.Backup) { BackupScreen() }
+            composable(Routes.Budgets) { BudgetsScreen() }
+            composable(Routes.Recurring) { RecurringScreen() }
             composable(
                 route = Routes.AddEdit,
                 arguments = listOf(
