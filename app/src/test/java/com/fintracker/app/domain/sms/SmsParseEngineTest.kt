@@ -160,6 +160,50 @@ class SmsParseEngineTest {
     }
 
     @Test
+    fun credClubAndCardPaymentShareDedupeKey() {
+        val bank = SmsMessage(
+            sender = "AD-CANBNK",
+            body = "Dear Customer, Acct XXXX6371 Dr. INR 8,459.77 on 25/07/26 to CRED Club; " +
+                "UPI: 657230203227; Bal INR 2,41,401.03.",
+            receivedAt = 1_700_000_000_000L
+        )
+        val card = SmsMessage(
+            sender = "VA-SBICRD-S",
+            body = "We have received payment of Rs.8,459.77 via BBPS & the same has been credited " +
+                "to your SBI Credit Card.",
+            receivedAt = 1_700_000_000_000L + 60_000L
+        )
+        val a = engine.parse(bank)
+        val b = engine.parse(card)
+        assertThat(a).isNotNull()
+        assertThat(b).isNotNull()
+        assertThat(a!!.type).isEqualTo(TransactionType.TRANSFER)
+        assertThat(b!!.type).isEqualTo(TransactionType.TRANSFER)
+        assertThat(a.dedupeKey).isEqualTo(b.dedupeKey)
+    }
+
+    @Test
+    fun twoRealMerchantsSameAmountKeepDifferentKeys() {
+        val a = engine.parse(
+            SmsMessage(
+                sender = "VM-HDFCBK",
+                body = "Rs.500.00 spent on your HDFC Bank Credit Card at Swiggy on 12-08-25.",
+                receivedAt = 1_700_000_000_000L
+            )
+        )
+        val b = engine.parse(
+            SmsMessage(
+                sender = "VM-ICICIB",
+                body = "Rs.500.00 spent on your ICICI Bank Credit Card at Zomato on 12-08-25.",
+                receivedAt = 1_700_000_000_000L + 120_000L
+            )
+        )
+        assertThat(a).isNotNull()
+        assertThat(b).isNotNull()
+        assertThat(a!!.dedupeKey).isNotEqualTo(b!!.dedupeKey)
+    }
+
+    @Test
     fun dedupeKeyStableForSameRef() {
         val a = engine.buildDedupeKey(10000, 1000L, "999", "x", "HDFC")
         val b = engine.buildDedupeKey(10000, 999999L, "999", "y", "SBI")
@@ -371,5 +415,102 @@ class SmsParseEngineTest {
         assertThat(parsed).isNotNull()
         assertThat(parsed!!.paymentMode).isEqualTo(PaymentMode.NET_BANKING)
         assertThat(parsed.amountPaise).isEqualTo(150000L)
+    }
+
+    @Test
+    fun capturesClosingBalanceFromCanaraAlert() {
+        val sms = SmsMessage(
+            sender = "CANBNK",
+            body = "An amount of INR 10,000.00 has been DEBITED to your account XXXX6371 on " +
+                "12/08/2026. Total Avail.bal INR 17,88,623.39.. Dial 1930 to report cyber fraud- " +
+                "Canara Bank",
+            receivedAt = 1_700_000_000_000L
+        )
+        val parsed = engine.parse(sms)
+        assertThat(parsed).isNotNull()
+        assertThat(parsed!!.amountPaise).isEqualTo(1_000_000L)
+        assertThat(parsed.type).isEqualTo(TransactionType.EXPENSE)
+        assertThat(parsed.balanceAfterPaise).isEqualTo(178_862_339L)
+    }
+
+    @Test
+    fun parsesRtgsCreditEvenWhenSenderNameMentionsRedemption() {
+        val sms = SmsMessage(
+            sender = "CANBNK",
+            body = "An amount of INR 30,85,687.08 has been credited to XXXX6371 on 28/07/2026 " +
+                "towards RTGS by Sender TMF REDEMPTION POOL A/C, IFSC HDFC0000240, Sender A/c " +
+                "XXXX9201, HDFC BANK, MUMBAI  SANDOZ HOUS, UTR HDFCR52026072888542568, " +
+                "Total Avail. Bal INR 4783179.35- Canara Bank",
+            receivedAt = 1_700_000_000_000L
+        )
+        val parsed = engine.parse(sms)
+        assertThat(parsed).isNotNull()
+        assertThat(parsed!!.type).isEqualTo(TransactionType.INCOME)
+        assertThat(parsed.amountPaise).isEqualTo(308_568_708L)
+        assertThat(parsed.balanceAfterPaise).isEqualTo(478_317_935L)
+        assertThat(parsed.maskedAccount).isEqualTo("XXXX6371")
+    }
+
+    @Test
+    fun keepsPaisePrecisionOnLargeAmounts() {
+        val sms = SmsMessage(
+            sender = "CANBNK",
+            body = "An amount of INR 30,85,687.08 has been DEBITED to your account XXXX6371. " +
+                "Total Avail.bal INR 47,83,179.35",
+            receivedAt = 1_700_000_000_000L
+        )
+        val parsed = engine.parse(sms)
+        assertThat(parsed).isNotNull()
+        assertThat(parsed!!.amountPaise).isEqualTo(308_568_708L)
+        assertThat(parsed.balanceAfterPaise).isEqualTo(478_317_935L)
+    }
+
+    @Test
+    fun extractsMerchantAfterSecondOnInIciciCardAlert() {
+        val sms = SmsMessage(
+            sender = "ICICIB",
+            body = "INR 304.00 spent using ICICI Bank Card XX3007 on 18-Jun-26 on " +
+                "AMAZON PAY IN E. Avl Limit: INR 91,696.00. If not you, call 1800 2662/" +
+                "SMS BLOCK 3007 to 9215676766.",
+            receivedAt = 1_700_000_000_000L
+        )
+        val parsed = engine.parse(sms)
+        assertThat(parsed).isNotNull()
+        assertThat(parsed!!.amountPaise).isEqualTo(30_400L)
+        assertThat(parsed.type).isEqualTo(TransactionType.EXPENSE)
+        assertThat(parsed.paymentMode).isEqualTo(PaymentMode.CREDIT_CARD)
+        assertThat(parsed.merchant).isEqualTo("AMAZON PAY IN E")
+        assertThat(parsed.maskedAccount).isEqualTo("XX3007")
+    }
+
+    @Test
+    fun extractsMerchantAfterAtSignInYesBankCardAlert() {
+        val sms = SmsMessage(
+            sender = "YESBNK",
+            body = "INR 10.00 spent on YES BANK Card X2847 @UPI_XXX yyy zzz 15-06-2026",
+            receivedAt = 1_700_000_000_000L
+        )
+        val parsed = engine.parse(sms)
+        assertThat(parsed).isNotNull()
+        assertThat(parsed!!.amountPaise).isEqualTo(1_000L)
+        assertThat(parsed.type).isEqualTo(TransactionType.EXPENSE)
+        assertThat(parsed.paymentMode).isEqualTo(PaymentMode.UPI)
+        assertThat(parsed.merchant).isEqualTo("UPI_XXX yyy zzz")
+        assertThat(parsed.maskedAccount).isEqualTo("X2847")
+    }
+
+    @Test
+    fun sameAmountDayDifferentBalanceGivesDistinctDedupeKeys() {
+        fun canara(balance: String) = SmsMessage(
+            sender = "CANBNK",
+            body = "An amount of INR 10,000.00 has been DEBITED to your account XXXX6371 on " +
+                "12/08/2026. Total Avail.bal INR $balance.. Dial 1930 to report cyber fraud- " +
+                "Canara Bank",
+            receivedAt = 1_700_000_000_000L
+        )
+        val a = engine.parse(canara("17,88,623.39"))!!
+        val b = engine.parse(canara("17,98,623.39"))!!
+        val c = engine.parse(canara("17,78,623.39"))!!
+        assertThat(setOf(a.dedupeKey, b.dedupeKey, c.dedupeKey)).hasSize(3)
     }
 }

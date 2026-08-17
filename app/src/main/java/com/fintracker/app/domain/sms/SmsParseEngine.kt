@@ -55,6 +55,7 @@ class SmsParseEngine(
                 val merchant = template.merchantGroup?.let { matcher.groupOrNull(it)?.trim() }
                 val reference = template.referenceGroup?.let { matcher.groupOrNull(it)?.trim() }
                 val balance = template.balanceGroup?.let { parseAmountToPaise(matcher.groupOrNull(it)) }
+                    ?: extractBalance(body)
                 val account = template.accountGroup?.let { matcher.groupOrNull(it)?.trim() }
                     ?: extractMaskedAccount(body)
 
@@ -65,7 +66,8 @@ class SmsParseEngine(
                     occurredAt = message.receivedAt,
                     reference = reference,
                     merchant = merchant,
-                    sender = message.sender
+                    sender = message.sender,
+                    balanceAfterPaise = balance
                 )
 
                 return ParsedSmsTransaction(
@@ -90,13 +92,15 @@ class SmsParseEngine(
         if (looksFinancial(body)) {
             val amount = extractFirstAmount(body) ?: return null
             val type = resolveDirection(body)
+            val reference = extractReference(body)
+            val balance = extractBalance(body)
             return ParsedSmsTransaction(
                 amountPaise = amount,
                 type = type,
                 paymentMode = refinePaymentMode(body, com.fintracker.app.domain.model.PaymentMode.UNKNOWN),
                 merchant = null,
-                reference = extractReference(body),
-                balanceAfterPaise = null,
+                reference = reference,
+                balanceAfterPaise = balance,
                 maskedAccount = extractMaskedAccount(body),
                 bankHint = null,
                 confidence = 0.55f,
@@ -104,7 +108,14 @@ class SmsParseEngine(
                 rawSnippet = body.take(280),
                 occurredAt = message.receivedAt,
                 needsReview = true,
-                dedupeKey = buildDedupeKey(amount, message.receivedAt, null, null, message.sender)
+                dedupeKey = buildDedupeKey(
+                    amount,
+                    message.receivedAt,
+                    reference,
+                    null,
+                    message.sender,
+                    balance
+                )
             )
         }
         return null
@@ -154,11 +165,24 @@ class SmsParseEngine(
                 "units?\\s+(?:of|for|are|have|were))\\b"
         ).containsMatchIn(body)
         if (!marker) return false
-        val bankMovement = Regex(
-            "(?i)(?:A/[Cc]|Acct|Account)\\s*(?:no\\.?)?\\s*[Xx*0-9]{3,}[^.]{0,40}?" +
-                "\\b(?:debited|credited|Dr|Cr)\\b|\\bAvl\\s*Bal\\b|\\bavailable\\s+balance\\b"
+        return !looksLikeBankAccountAlert(body)
+    }
+
+    /**
+     * Distinguishes a bank account alert from an AMC/CRA unit confirmation. Investment vocabulary
+     * also shows up in genuine bank credits, because the counterparty name is quoted verbatim
+     * ("credited ... by Sender TMF REDEMPTION POOL A/C"), so these signals must win over the marker:
+     * only the bank prints your closing balance, a UTR is issued for a settled transfer, and a
+     * masked account sitting next to a debit/credit verb means money moved through that account.
+     */
+    private fun looksLikeBankAccountAlert(body: String): Boolean {
+        if (extractBalance(body) != null) return true
+        if (Regex("(?i)\\bUTR\\b").containsMatchIn(body)) return true
+        return Regex(
+            "(?i)\\b(?:debited|credited)\\b[^.]{0,40}?(?:A/[Cc]|Acct|Account)?\\s*[Xx*]{2,}[0-9]{2,}|" +
+                "(?:A/[Cc]|Acct|Account)\\s*(?:no\\.?)?\\s*[Xx*0-9]{3,}[^.]{0,40}?" +
+                "\\b(?:debited|credited|Dr|Cr)\\b"
         ).containsMatchIn(body)
-        return !bankMovement
     }
 
     private fun looksFinancial(body: String): Boolean =
@@ -188,13 +212,26 @@ class SmsParseEngine(
         if (!mentionsCard) return false
         val confirmations = listOf(
             """(?i)received\s+(?:your\s+)?payment""",
+            """(?i)we've\s+received\s+your\s+payment""",
             """(?i)payment\s+of\s*(?:Rs\.?|INR|₹)?\s*[0-9,.]+\s*(?:is|has\s+been|was)?\s*(?:received|credited|successful)""",
             """(?i)\bcredited\s+to\s+your\b[^.\n]{0,60}?\b(?:credit\s*card|card)\b""",
             """(?i)thank\s+you\s+for\s+(?:the|your)\s+payment""",
-            """(?i)\b(?:debited|paid|payment|Dr\.?)\b[^\n]{0,80}?\b(?:towards|to|for)\b[^\n]{0,40}?(?:credit\s*card|cc\s*bill|card\s*bill|CRED\b)""",
-            """(?i)(?:credit\s*card|cc)\s*bill\s*(?:payment|paid)"""
+            """(?i)\b(?:debited|paid|payment|Dr\.?)\b[^\n]{0,100}?\b(?:towards|to|for)\b[^\n]{0,50}?(?:credit\s*card|cc\s*bill|card\s*bill|CRED\b|sbicard|scapia)""",
+            """(?i)(?:credit\s*card|cc)\s*bill\s*(?:payment|paid)""",
+            """(?i)\b(?:to|towards)\s+CRED\s*(?:Club|App)?\b""",
+            """(?i)Acct\s+[Xx*0-9]+\s+Dr\.?\s*(?:INR|Rs\.?|₹)?\s*[0-9,.]+\s+on\s+[^\n]{0,40}?\bCRED\b"""
         )
         return confirmations.any { Regex(it).containsMatchIn(body) }
+    }
+
+    fun isGenericMerchant(merchant: String?): Boolean = isGenericMerchantStatic(merchant)
+
+    /** IST calendar day bounds for [occurredAt] (inclusive start, inclusive end ms). */
+    fun istDayRange(occurredAt: Long): Pair<Long, Long> {
+        val dayIndex = (occurredAt + IST_OFFSET_MS) / DAY_MS
+        val start = dayIndex * DAY_MS - IST_OFFSET_MS
+        val end = start + DAY_MS - 1
+        return start to end
     }
 
     /** For a bill payment the useful mode is how it was funded, not the card being settled. */
@@ -255,11 +292,21 @@ class SmsParseEngine(
         }
     }
 
+    /**
+     * Exact rupees-to-paise conversion. Going through Double loses a paisa on large amounts
+     * (4783179.35 * 100 is 478317934.99999994, which truncates to ...34), so the decimal part is
+     * scaled as an integer instead.
+     */
     private fun parseAmountToPaise(raw: String?): Long? {
         if (raw.isNullOrBlank()) return null
-        val cleaned = raw.replace(",", "").trim()
-        val value = cleaned.toDoubleOrNull() ?: return null
-        return (value * 100).toLong()
+        val cleaned = raw.replace(",", "").replace(" ", "").trim()
+        if (!Regex("^[0-9]+(?:\\.[0-9]{1,2})?$").matches(cleaned)) return null
+        val rupees = cleaned.substringBefore('.').toLongOrNull() ?: return null
+        val paise = when (val frac = cleaned.substringAfter('.', "")) {
+            "" -> 0L
+            else -> frac.padEnd(2, '0').toLongOrNull() ?: return null
+        }
+        return rupees * 100 + paise
     }
 
     private fun extractFirstAmount(body: String): Long? {
@@ -267,21 +314,55 @@ class SmsParseEngine(
         return parseAmountToPaise(match?.groupValues?.getOrNull(1))
     }
 
-    private fun extractMaskedAccount(body: String): String? =
-        Regex("(?i)(?:A/C|A/c|Acc(?:ount)?)[^0-9X*]*([Xx*0-9]{4,})").find(body)?.groupValues?.getOrNull(1)
+    /**
+     * The account the money moved through. Transfer alerts also quote the counterparty's account
+     * and an IFSC code ("by Sender TMF REDEMPTION POOL A/C, IFSC HDFC0000240, Sender A/c XXXX9201"),
+     * so the masked account next to the debit/credit verb wins, an "A/c" introduced by "Sender" is
+     * skipped, and the keyword match may no longer skip across letters into an IFSC code.
+     */
+    private fun extractMaskedAccount(body: String): String? {
+        val masked = "([Xx*]+[0-9]{2,})"
+        Regex("(?i)\\b(?:debited|credited)\\b[^.]{0,40}?\\b$masked")
+            .find(body)?.groupValues?.getOrNull(1)?.let { return it }
+        Regex(
+            "(?i)(?<!sender\\s)(?:A/C|A/c|Acct|Acc(?:ount)?)\\s*(?:no\\.?)?[:\\s]*([Xx*0-9]{4,})"
+        ).find(body)?.groupValues?.getOrNull(1)?.let { return it }
+        return Regex(masked).find(body)?.groupValues?.getOrNull(1)
+    }
 
     private fun extractReference(body: String): String? =
         Regex("(?i)(?:UPI\\s*Ref|Ref(?:erence)?|UTR)[^0-9]*([0-9]{6,})").find(body)?.groupValues?.getOrNull(1)
+
+    /**
+     * Closing/available balance printed by most bank alerts ("Total Avail.bal INR 17,88,623.39",
+     * "Avl Bal Rs.5,000.00", "available balance is INR ...", "Bal INR 2,41,401.03"). Two otherwise
+     * identical same-day debits with different balances are distinct transactions, so this is a
+     * key disambiguator.
+     */
+    fun extractBalance(body: String): Long? {
+        val match = Regex(
+            "(?i)(?:avl\\.?\\s*bal(?:ance)?|avail(?:able)?\\.?\\s*bal(?:ance)?|" +
+                "(?:total\\s+)?avail\\.?bal|bal(?:ance)?)\\s*(?:is|:)?\\s*" +
+                "(?:Rs\\.?|INR|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)"
+        ).find(body)
+        return parseAmountToPaise(match?.groupValues?.getOrNull(1))
+    }
 
     fun buildDedupeKey(
         amountPaise: Long,
         occurredAt: Long,
         reference: String?,
         merchant: String?,
-        sender: String
+        sender: String,
+        balanceAfterPaise: Long? = null
     ): String {
         if (!reference.isNullOrBlank()) {
             return sha1("ref:$reference:$amountPaise")
+        }
+        // A distinct closing balance means a distinct transaction even at the same amount/time.
+        if (balanceAfterPaise != null) {
+            val istDay = (occurredAt + IST_OFFSET_MS) / DAY_MS
+            return sha1("amtbal:$amountPaise|bal:$balanceAfterPaise|d:$istDay|s:${sender.uppercase(Locale.US)}")
         }
         val bucket = occurredAt / (3 * 60 * 1000)
         val merchantPart = merchant?.trim()?.lowercase(Locale.US).orEmpty()
@@ -309,8 +390,15 @@ class SmsParseEngine(
             null
         }
 
-    private companion object {
+    companion object {
         const val DAY_MS = 24 * 60 * 60 * 1000L
         const val IST_OFFSET_MS = 5 * 60 * 60 * 1000L + 30 * 60 * 1000L
+
+        fun isGenericMerchantStatic(merchant: String?): Boolean {
+            if (merchant.isNullOrBlank()) return true
+            val m = merchant.trim().lowercase(Locale.US)
+            return m == "transaction" || m == "txn" || m == "trxn" || m == "payment" ||
+                m == "credit card payment"
+        }
     }
 }

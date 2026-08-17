@@ -12,6 +12,8 @@ import com.fintracker.app.domain.sms.SmsParseEngine
 import java.io.BufferedReader
 import java.io.InputStream
 import java.io.InputStreamReader
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.text.SimpleDateFormat
 import java.util.Locale
 import javax.inject.Inject
@@ -84,7 +86,8 @@ class CsvImportService @Inject constructor(
                         occurredAt = occurredAt,
                         reference = null,
                         merchant = description.take(40),
-                        sender = "CSV:$fileName"
+                        sender = "CSV:$fileName",
+                        balanceAfterPaise = balance
                     )
                     val entity = TransactionEntity(
                         amountPaise = absoluteAmount,
@@ -207,8 +210,10 @@ class CsvImportService @Inject constructor(
             .replace(",", "")
             .trim()
         if (cleaned.isBlank() || cleaned == "-") return null
-        val value = cleaned.toDoubleOrNull() ?: return null
-        return (value * 100).toLong()
+        // BigDecimal keeps the conversion exact; via Double, 4783179.35 * 100 truncates to ...34.
+        return runCatching {
+            BigDecimal(cleaned).movePointRight(2).setScale(0, RoundingMode.HALF_UP).toLong()
+        }.getOrNull()
     }
 
     private fun parseDate(raw: String, pattern: String): Long? {

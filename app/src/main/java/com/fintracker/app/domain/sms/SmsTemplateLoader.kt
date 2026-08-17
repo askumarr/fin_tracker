@@ -152,6 +152,21 @@ class SmsTemplateLoader @Inject constructor(
                 confidence = 0.92f
             ),
             SmsTemplate(
+                id = "generic_card_txn_on_or_at_merchant",
+                bankHint = null,
+                senderPatterns = listOf(".*"),
+                bodyPatterns = listOf(
+                    // ICICI: "... Card XX3007 on 18-Jun-26 on AMAZON PAY IN E. Avl Limit ..."
+                    """(?i)(?:Rs\.?|INR|₹)\s*([0-9,]+\.?[0-9]*)\s+spent\s+using\s+.*?\bCard\s+[Xx*]*\d{4}\s+on\s+\d{1,2}[-/][A-Za-z0-9]{2,3}[-/]\d{2,4}\s+on\s+(.+?)(?=\.\s*(?:Avl|Available)\b|[.!]|$)""",
+                    // YES: "... Card X2847 @UPI_XXX yyy zzz 15-06-2026"
+                    """(?i)(?:Rs\.?|INR|₹)\s*([0-9,]+\.?[0-9]*)\s+spent\s+on\s+.*?\bCard\s+[Xx*]*\d{4}\s+@\s*(.+?)\s+\d{1,2}[-/]\d{1,2}[-/]\d{2,4}(?:\b|$)"""
+                ),
+                merchantGroup = 2,
+                type = TransactionType.EXPENSE,
+                paymentMode = PaymentMode.CREDIT_CARD,
+                confidence = 0.86f
+            ),
+            SmsTemplate(
                 id = "generic_card_txn_at_merchant",
                 bankHint = null,
                 senderPatterns = listOf(".*"),
