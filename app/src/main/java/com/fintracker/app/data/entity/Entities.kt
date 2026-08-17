@@ -83,12 +83,29 @@ data class MerchantCategoryRuleEntity(
     val updatedAt: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "sms_sender_rules")
+@Entity(tableName = "sms_sender_rules", indices = [Index("senderPattern", unique = true)])
 data class SmsSenderRuleEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val senderPattern: String,
     val allowed: Boolean = true,
-    val bankHint: String? = null
+    val bankHint: String? = null,
+    /** ALLOW | IGNORE | FORCE_EXPENSE */
+    val action: String = "ALLOW",
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "budgets",
+    indices = [Index(value = ["categoryId", "monthKey"], unique = true)]
+)
+data class BudgetEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val categoryId: Long,
+    /** yyyy-MM in IST, or "*" for every month */
+    val monthKey: String = "*",
+    val limitPaise: Long,
+    /** 0.0–1.0; alert when spend/limit >= this */
+    val alertRatio: Float = 0.8f
 )
 
 @Entity(tableName = "import_jobs")

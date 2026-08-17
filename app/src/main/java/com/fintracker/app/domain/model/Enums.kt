@@ -32,3 +32,10 @@ enum class ReviewStatus {
     CONFIRMED,
     DISMISSED
 }
+
+/** Learned behavior for an SMS sender after review decisions. */
+enum class SenderRuleAction {
+    ALLOW,
+    IGNORE,
+    FORCE_EXPENSE
+}

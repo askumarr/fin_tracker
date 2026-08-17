@@ -3,6 +3,7 @@ package com.fintracker.app.di
 import android.content.Context
 import androidx.room.Room
 import com.fintracker.app.data.dao.AccountDao
+import com.fintracker.app.data.dao.BudgetDao
 import com.fintracker.app.data.dao.CategoryDao
 import com.fintracker.app.data.dao.ImportJobDao
 import com.fintracker.app.data.dao.MerchantCategoryRuleDao
@@ -11,6 +12,7 @@ import com.fintracker.app.data.dao.TransactionDao
 import com.fintracker.app.data.db.DatabaseSeeder
 import com.fintracker.app.data.db.FinTrackerDatabase
 import com.fintracker.app.data.repository.AccountRepository
+import com.fintracker.app.data.repository.TransactionRepository
 import com.fintracker.app.domain.sms.SmsParseEngine
 import com.fintracker.app.domain.sms.SmsTemplateLoader
 import dagger.Module
@@ -28,6 +30,7 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): FinTrackerDatabase =
         Room.databaseBuilder(context, FinTrackerDatabase::class.java, FinTrackerDatabase.NAME)
+            .addMigrations(FinTrackerDatabase.MIGRATION_1_2)
             .fallbackToDestructiveMigration()
             .build()
 
@@ -38,14 +41,16 @@ object AppModule {
         db.merchantCategoryRuleDao()
     @Provides fun provideSmsSenderRuleDao(db: FinTrackerDatabase): SmsSenderRuleDao =
         db.smsSenderRuleDao()
+    @Provides fun provideBudgetDao(db: FinTrackerDatabase): BudgetDao = db.budgetDao()
     @Provides fun provideImportJobDao(db: FinTrackerDatabase): ImportJobDao = db.importJobDao()
 
     @Provides
     @Singleton
     fun provideSeeder(
         categoryDao: CategoryDao,
-        accountRepository: AccountRepository
-    ): DatabaseSeeder = DatabaseSeeder(categoryDao, accountRepository)
+        accountRepository: AccountRepository,
+        transactionRepository: TransactionRepository
+    ): DatabaseSeeder = DatabaseSeeder(categoryDao, accountRepository, transactionRepository)
 
     @Provides
     @Singleton

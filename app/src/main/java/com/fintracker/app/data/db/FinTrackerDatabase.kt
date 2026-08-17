@@ -1,24 +1,25 @@
 package com.fintracker.app.data.db
 
-import android.content.Context
 import androidx.room.Database
-import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.fintracker.app.data.dao.AccountDao
+import com.fintracker.app.data.dao.BudgetDao
 import com.fintracker.app.data.dao.CategoryDao
 import com.fintracker.app.data.dao.ImportJobDao
 import com.fintracker.app.data.dao.MerchantCategoryRuleDao
 import com.fintracker.app.data.dao.SmsSenderRuleDao
 import com.fintracker.app.data.dao.TransactionDao
 import com.fintracker.app.data.entity.AccountEntity
+import com.fintracker.app.data.entity.BudgetEntity
 import com.fintracker.app.data.entity.CategoryEntity
 import com.fintracker.app.data.entity.ImportJobEntity
 import com.fintracker.app.data.entity.MerchantCategoryRuleEntity
 import com.fintracker.app.data.entity.SmsSenderRuleEntity
 import com.fintracker.app.data.entity.TransactionEntity
 import com.fintracker.app.data.repository.AccountRepository
+import com.fintracker.app.data.repository.TransactionRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -30,9 +31,10 @@ import kotlinx.coroutines.launch
         TransactionEntity::class,
         MerchantCategoryRuleEntity::class,
         SmsSenderRuleEntity::class,
+        BudgetEntity::class,
         ImportJobEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -42,20 +44,50 @@ abstract class FinTrackerDatabase : RoomDatabase() {
     abstract fun transactionDao(): TransactionDao
     abstract fun merchantCategoryRuleDao(): MerchantCategoryRuleDao
     abstract fun smsSenderRuleDao(): SmsSenderRuleDao
+    abstract fun budgetDao(): BudgetDao
     abstract fun importJobDao(): ImportJobDao
 
     companion object {
         const val NAME = "fin_tracker.db"
 
-        fun build(context: Context): FinTrackerDatabase =
-            Room.databaseBuilder(context, FinTrackerDatabase::class.java, NAME)
-                .addCallback(object : Callback() {
-                    override fun onCreate(db: SupportSQLiteDatabase) {
-                        super.onCreate(db)
-                        // Seeded via DatabaseSeeder after first open.
-                    }
-                })
-                .build()
+        val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS budgets (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        categoryId INTEGER NOT NULL,
+                        monthKey TEXT NOT NULL,
+                        limitPaise INTEGER NOT NULL,
+                        alertRatio REAL NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_budgets_categoryId_monthKey " +
+                        "ON budgets(categoryId, monthKey)"
+                )
+                try {
+                    db.execSQL(
+                        "ALTER TABLE sms_sender_rules ADD COLUMN action TEXT NOT NULL DEFAULT 'ALLOW'"
+                    )
+                } catch (_: Exception) {
+                }
+                try {
+                    db.execSQL(
+                        "ALTER TABLE sms_sender_rules ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0"
+                    )
+                } catch (_: Exception) {
+                }
+                try {
+                    db.execSQL(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS index_sms_sender_rules_senderPattern " +
+                            "ON sms_sender_rules(senderPattern)"
+                    )
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
 }
 
@@ -82,13 +114,15 @@ object DefaultCategories {
 
 class DatabaseSeeder(
     private val categoryDao: CategoryDao,
-    private val accountRepository: AccountRepository? = null
+    private val accountRepository: AccountRepository? = null,
+    private val transactionRepository: TransactionRepository? = null
 ) {
     suspend fun seedIfNeeded() {
         if (categoryDao.count() == 0) {
             categoryDao.insertAll(DefaultCategories.all)
         }
         accountRepository?.mergeDuplicates()
+        transactionRepository?.mergeSameDaySmsDuplicates()
     }
 
     fun seedAsync() {

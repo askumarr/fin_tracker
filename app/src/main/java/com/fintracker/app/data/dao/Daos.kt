@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import com.fintracker.app.data.entity.AccountEntity
+import com.fintracker.app.data.entity.BudgetEntity
 import com.fintracker.app.data.entity.CategoryEntity
 import com.fintracker.app.data.entity.ImportJobEntity
 import com.fintracker.app.data.entity.MerchantCategoryRuleEntity
@@ -117,6 +118,39 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE dedupeKey = :key LIMIT 1")
     suspend fun findByDedupeKey(key: String): TransactionEntity?
 
+    @Query(
+        """
+        SELECT * FROM transactions
+        WHERE source = 'SMS'
+          AND amountPaise = :amountPaise
+          AND type = :type
+          AND occurredAt BETWEEN :dayStart AND :dayEnd
+          AND reviewStatus != 'DISMISSED'
+        ORDER BY confidence DESC, id ASC
+        """
+    )
+    suspend fun findSameDaySms(
+        amountPaise: Long,
+        type: TransactionType,
+        dayStart: Long,
+        dayEnd: Long
+    ): List<TransactionEntity>
+
+    @Query(
+        """
+        SELECT * FROM transactions
+        WHERE source = 'SMS'
+          AND reference IS NOT NULL
+          AND reference = :reference
+          AND amountPaise = :amountPaise
+        LIMIT 1
+        """
+    )
+    suspend fun findByReferenceAndAmount(reference: String, amountPaise: Long): TransactionEntity?
+
+    @Query("SELECT * FROM transactions WHERE source = 'SMS' ORDER BY occurredAt DESC")
+    suspend fun getAllSms(): List<TransactionEntity>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(transaction: TransactionEntity): Long
 
@@ -169,11 +203,39 @@ interface SmsSenderRuleDao {
     @Query("SELECT * FROM sms_sender_rules")
     suspend fun getAll(): List<SmsSenderRuleEntity>
 
+    @Query("SELECT * FROM sms_sender_rules WHERE senderPattern = :pattern LIMIT 1")
+    suspend fun findByPattern(pattern: String): SmsSenderRuleEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(rule: SmsSenderRuleEntity)
 
     @Query("DELETE FROM sms_sender_rules")
     suspend fun deleteAll()
+}
+
+@Dao
+interface BudgetDao {
+    @Query("SELECT * FROM budgets ORDER BY categoryId")
+    fun observeAll(): Flow<List<BudgetEntity>>
+
+    @Query("SELECT * FROM budgets")
+    suspend fun getAll(): List<BudgetEntity>
+
+    @Query(
+        """
+        SELECT * FROM budgets
+        WHERE categoryId = :categoryId AND (monthKey = :monthKey OR monthKey = '*')
+        ORDER BY CASE WHEN monthKey = :monthKey THEN 0 ELSE 1 END
+        LIMIT 1
+        """
+    )
+    suspend fun findForCategoryMonth(categoryId: Long, monthKey: String): BudgetEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(budget: BudgetEntity): Long
+
+    @Query("DELETE FROM budgets WHERE id = :id")
+    suspend fun deleteById(id: Long)
 }
 
 @Dao

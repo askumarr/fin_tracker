@@ -86,13 +86,21 @@ class BackupViewModel @Inject constructor(
                     System.currentTimeMillis() - windowMs
                 )
                 val result = inboxScanner.scanRecent(windowMs)
+                val merged = transactionRepository.mergeSameDaySmsDuplicates()
                 _message.value = "Removed $removed old SMS entries · re-added ${result.imported} " +
-                    "from ${result.scanned} messages"
+                    "from ${result.scanned} messages · merged $merged same-day duplicates"
             } catch (e: Exception) {
                 _message.value = e.message ?: "Rebuild failed"
             } finally {
                 _rescanning.value = false
             }
+        }
+    }
+
+    fun mergeDuplicatesNow() {
+        viewModelScope.launch {
+            val txns = transactionRepository.mergeSameDaySmsDuplicates()
+            _message.value = "Merged $txns same-day SMS duplicate(s)"
         }
     }
 
@@ -251,6 +259,12 @@ fun BackupScreen(viewModel: BackupViewModel = hiltViewModel()) {
                 enabled = !rescanning && smsPermissionGranted,
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Clear SMS entries & rebuild") }
+
+            OutlinedButton(
+                onClick = viewModel::mergeDuplicatesNow,
+                enabled = !rescanning,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Merge same-day SMS duplicates") }
 
             Text(
                 "Rebuild deletes auto-captured SMS entries in the window and re-reads them, so " +
