@@ -12,7 +12,8 @@ import javax.inject.Singleton
 class SmsIngestionService @Inject constructor(
     private val parseEngine: SmsParseEngine,
     private val transactionRepository: TransactionRepository,
-    private val accountRepository: AccountRepository
+    private val accountRepository: AccountRepository,
+    private val senderLearning: SenderLearningService
 ) {
     data class Result(
         val savedId: Long?,
@@ -21,7 +22,20 @@ class SmsIngestionService @Inject constructor(
     )
 
     suspend fun ingest(message: SmsMessage): Result {
+        when (senderLearning.actionFor(message.sender)) {
+            com.fintracker.app.domain.model.SenderRuleAction.IGNORE ->
+                return Result(null, false, false)
+            else -> Unit
+        }
         val parsed = parseEngine.parse(message) ?: return Result(null, false, false)
+        val forcedExpense =
+            senderLearning.actionFor(message.sender) ==
+                com.fintracker.app.domain.model.SenderRuleAction.FORCE_EXPENSE
+        val type = if (forcedExpense) {
+            com.fintracker.app.domain.model.TransactionType.EXPENSE
+        } else {
+            parsed.type
+        }
         val accountId = accountRepository.findOrCreate(
             bankHint = parsed.bankHint,
             masked = parsed.maskedAccount,
@@ -30,7 +44,7 @@ class SmsIngestionService @Inject constructor(
         val categoryId = transactionRepository.suggestCategory(parsed.merchant)
         val entity = TransactionEntity(
             amountPaise = parsed.amountPaise,
-            type = parsed.type,
+            type = type,
             paymentMode = parsed.paymentMode,
             categoryId = categoryId,
             accountId = accountId,
