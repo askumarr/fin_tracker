@@ -1,0 +1,48 @@
+package com.fintracker.app.domain.sms
+
+import com.fintracker.app.data.entity.TransactionEntity
+import com.fintracker.app.data.repository.AccountRepository
+import com.fintracker.app.data.repository.TransactionRepository
+import com.fintracker.app.domain.model.ReviewStatus
+import com.fintracker.app.domain.model.TransactionSource
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class SmsIngestionService @Inject constructor(
+    private val parseEngine: SmsParseEngine,
+    private val transactionRepository: TransactionRepository,
+    private val accountRepository: AccountRepository
+) {
+    data class Result(
+        val savedId: Long?,
+        val duplicate: Boolean,
+        val parsed: Boolean
+    )
+
+    suspend fun ingest(message: SmsMessage): Result {
+        val parsed = parseEngine.parse(message) ?: return Result(null, false, false)
+        val accountId = accountRepository.findOrCreate(parsed.bankHint, parsed.maskedAccount)
+        val categoryId = transactionRepository.suggestCategory(parsed.merchant)
+        val entity = TransactionEntity(
+            amountPaise = parsed.amountPaise,
+            type = parsed.type,
+            paymentMode = parsed.paymentMode,
+            categoryId = categoryId,
+            accountId = accountId,
+            merchant = parsed.merchant,
+            note = null,
+            occurredAt = parsed.occurredAt,
+            source = TransactionSource.SMS,
+            confidence = parsed.confidence,
+            reviewStatus = if (parsed.needsReview) ReviewStatus.NEEDS_REVIEW else ReviewStatus.NONE,
+            reference = parsed.reference,
+            balanceAfterPaise = parsed.balanceAfterPaise,
+            rawSmsSnippet = parsed.rawSnippet,
+            smsSender = parsed.sender,
+            dedupeKey = parsed.dedupeKey
+        )
+        val (id, duplicate) = transactionRepository.insertDeduped(entity)
+        return Result(savedId = id.takeIf { it > 0 }, duplicate = duplicate, parsed = true)
+    }
+}

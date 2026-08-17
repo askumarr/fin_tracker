@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FinTracker</string>
+    <string name="sms_permission_rationale">FinTracker reads bank and UPI transaction SMS on your device to auto-track expenses. Messages never leave your phone.</string>
+</resources>

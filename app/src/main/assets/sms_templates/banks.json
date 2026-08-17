@@ -1,0 +1,29 @@
+[
+  {
+    "id": "hdfc_credit_alert",
+    "bankHint": "HDFC",
+    "senderPatterns": ["HDFCBK", "HDFC"],
+    "bodyPatterns": [
+      "(?i)Rs\\.?\\s*([0-9,]+\\.?[0-9]*)\\s+credited.*?to.*?A/c.*?([Xx0-9]{4,}).*?(?:from|by)\\s+([A-Za-z0-9@._\\- ]+)"
+    ],
+    "amountGroup": 1,
+    "accountGroup": 2,
+    "merchantGroup": 3,
+    "type": "INCOME",
+    "paymentMode": "UPI",
+    "confidence": 0.88
+  },
+  {
+    "id": "axis_card_spend",
+    "bankHint": "AXIS",
+    "senderPatterns": ["AXISBK", "AXIS"],
+    "bodyPatterns": [
+      "(?i)INR\\s*([0-9,]+\\.?[0-9]*)\\s+spent.*?on.*?Card.*?at\\s+([A-Za-z0-9 *&._\\-]+)"
+    ],
+    "amountGroup": 1,
+    "merchantGroup": 2,
+    "type": "EXPENSE",
+    "paymentMode": "CREDIT_CARD",
+    "confidence": 0.86
+  }
+]
