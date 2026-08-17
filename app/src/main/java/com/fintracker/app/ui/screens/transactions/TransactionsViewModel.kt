@@ -27,6 +27,12 @@ data class MonthSummary(
     val count: Int
 )
 
+data class DayGroup(
+    val dayLabel: String,
+    val dayKey: String,
+    val items: List<TransactionEntity>
+)
+
 data class TransactionsUiState(
     val scope: HistoryScope = HistoryScope.MONTH,
     val selectedMonth: DateFormatters.MonthPeriod = DateFormatters.currentMonthPeriod(),
@@ -35,10 +41,13 @@ data class TransactionsUiState(
     val availableYears: List<Int> = emptyList(),
     val typeFilter: TransactionType? = null,
     val modeFilter: PaymentMode? = null,
+    val searchQuery: String = "",
     val spentPaise: Long = 0,
     val creditedPaise: Long = 0,
     val transferPaise: Long = 0,
     val items: List<TransactionEntity> = emptyList(),
+    val dayGroups: List<DayGroup> = emptyList(),
+    val categorySpend: List<Pair<String, Long>> = emptyList(),
     val monthSummaries: List<MonthSummary> = emptyList(),
     val categories: Map<Long, CategoryEntity> = emptyMap(),
     val periodLabel: String = "",
@@ -56,7 +65,8 @@ class TransactionsViewModel @Inject constructor(
             month = DateFormatters.currentMonthPeriod(),
             year = DateFormatters.currentYearPeriod(),
             typeFilter = null,
-            modeFilter = null
+            modeFilter = null,
+            searchQuery = ""
         )
     )
 
@@ -65,7 +75,8 @@ class TransactionsViewModel @Inject constructor(
         val month: DateFormatters.MonthPeriod,
         val year: DateFormatters.YearPeriod,
         val typeFilter: TransactionType?,
-        val modeFilter: PaymentMode?
+        val modeFilter: PaymentMode?,
+        val searchQuery: String
     )
 
     val uiState = combine(
@@ -88,6 +99,25 @@ class TransactionsViewModel @Inject constructor(
                     it.occurredAt in sel.month.startMs..sel.month.endMs
                 }
                 val filtered = inMonth.filter { matchesFilters(it, sel) }
+                val dayGroups = filtered
+                    .groupBy { DateFormatters.dayKey(it.occurredAt) }
+                    .entries
+                    .sortedByDescending { it.key }
+                    .map { (key, list) ->
+                        DayGroup(
+                            dayLabel = DateFormatters.day(list.first().occurredAt),
+                            dayKey = key,
+                            items = list.sortedByDescending { it.occurredAt }
+                        )
+                    }
+                val categorySpend = inMonth
+                    .filter { it.type == TransactionType.EXPENSE }
+                    .groupBy { it.categoryId }
+                    .map { (id, list) ->
+                        (id?.let { catMap[it]?.name } ?: "Uncategorized") to
+                            list.sumOf { it.amountPaise }
+                    }
+                    .sortedByDescending { it.second }
                 TransactionsUiState(
                     scope = HistoryScope.MONTH,
                     selectedMonth = sel.month,
@@ -96,6 +126,7 @@ class TransactionsViewModel @Inject constructor(
                     availableYears = years,
                     typeFilter = sel.typeFilter,
                     modeFilter = sel.modeFilter,
+                    searchQuery = sel.searchQuery,
                     spentPaise = inMonth.filter { it.type == TransactionType.EXPENSE }
                         .sumOf { it.amountPaise },
                     creditedPaise = inMonth.filter { it.type == TransactionType.INCOME }
@@ -103,6 +134,8 @@ class TransactionsViewModel @Inject constructor(
                     transferPaise = inMonth.filter { it.type == TransactionType.TRANSFER }
                         .sumOf { it.amountPaise },
                     items = filtered,
+                    dayGroups = dayGroups,
+                    categorySpend = categorySpend,
                     categories = catMap,
                     periodLabel = sel.month.label,
                     periodRangeLabel = DateFormatters.periodDayRangeLabel(
@@ -151,6 +184,7 @@ class TransactionsViewModel @Inject constructor(
                     availableYears = years,
                     typeFilter = sel.typeFilter,
                     modeFilter = sel.modeFilter,
+                    searchQuery = sel.searchQuery,
                     spentPaise = inYear.filter { it.type == TransactionType.EXPENSE }
                         .sumOf { it.amountPaise },
                     creditedPaise = inYear.filter { it.type == TransactionType.INCOME }
@@ -212,6 +246,10 @@ class TransactionsViewModel @Inject constructor(
         }
     }
 
+    fun setSearchQuery(query: String) {
+        selection.update { it.copy(searchQuery = query) }
+    }
+
     fun setTypeFilter(type: TransactionType?) {
         selection.update { it.copy(typeFilter = type) }
     }
@@ -223,6 +261,18 @@ class TransactionsViewModel @Inject constructor(
     private fun matchesFilters(txn: TransactionEntity, sel: Selection): Boolean {
         if (sel.typeFilter != null && txn.type != sel.typeFilter) return false
         if (sel.modeFilter != null && txn.paymentMode != sel.modeFilter) return false
+        val q = sel.searchQuery.trim()
+        if (q.isNotEmpty()) {
+            val haystack = listOfNotNull(
+                txn.merchant,
+                txn.note,
+                txn.reference,
+                txn.rawSmsSnippet,
+                txn.amountPaise.toString(),
+                (txn.amountPaise / 100.0).toString()
+            ).joinToString(" ").lowercase()
+            if (!haystack.contains(q.lowercase())) return false
+        }
         return true
     }
 

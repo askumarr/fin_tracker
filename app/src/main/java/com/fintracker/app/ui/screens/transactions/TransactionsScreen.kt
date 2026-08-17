@@ -22,6 +22,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -35,8 +36,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fintracker.app.domain.model.PaymentMode
 import com.fintracker.app.domain.model.TransactionType
+import com.fintracker.app.ui.components.CategorySlice
+import com.fintracker.app.ui.components.CategorySpendPie
+import com.fintracker.app.ui.components.ChipLabel
 import com.fintracker.app.ui.components.SummaryPill
 import com.fintracker.app.ui.components.TransactionRow
+import com.fintracker.app.ui.components.categoryPalette
+import com.fintracker.app.ui.components.paymentModeLabel
 import com.fintracker.app.ui.util.MoneyFormat
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -175,6 +181,31 @@ fun TransactionsScreen(
                 }
             }
 
+            if (monthScope && state.categorySpend.isNotEmpty()) {
+                item(key = "pie") {
+                    CategorySpendPie(
+                        slices = state.categorySpend.mapIndexed { index, (name, amount) ->
+                            CategorySlice(name, amount, categoryPalette(index))
+                        },
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                }
+            }
+
+            if (monthScope) {
+                item(key = "search") {
+                    OutlinedTextField(
+                        value = state.searchQuery,
+                        onValueChange = viewModel::setSearchQuery,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        label = { Text("Search merchant, note, amount") },
+                        singleLine = true
+                    )
+                }
+            }
+
             if (monthScope) {
                 stickyHeader(key = "filters") {
                     LazyRow(
@@ -187,7 +218,7 @@ fun TransactionsScreen(
                             FilterChip(
                                 selected = state.typeFilter == null,
                                 onClick = { viewModel.setTypeFilter(null) },
-                                label = { Text("All") },
+                                label = { ChipLabel("All") },
                                 modifier = Modifier.padding(end = 8.dp)
                             )
                         }
@@ -199,7 +230,11 @@ fun TransactionsScreen(
                                         if (state.typeFilter == type) null else type
                                     )
                                 },
-                                label = { Text(type.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                                label = {
+                                    ChipLabel(
+                                        type.name.lowercase().replaceFirstChar { it.uppercase() }
+                                    )
+                                },
                                 modifier = Modifier.padding(end = 8.dp)
                             )
                         }
@@ -211,22 +246,31 @@ fun TransactionsScreen(
                                         if (state.modeFilter == mode) null else mode
                                     )
                                 },
-                                label = { Text(mode.name.replace('_', ' ')) },
+                                label = { ChipLabel(paymentModeLabel(mode)) },
                                 modifier = Modifier.padding(end = 8.dp)
                             )
                         }
                     }
                 }
 
-                items(state.items, key = { it.id }) { txn ->
-                    Column(modifier = Modifier.clickable { onOpenTransaction(txn.id) }) {
-                        TransactionRow(
-                            txn = txn,
-                            categoryName = txn.categoryId?.let { state.categories[it]?.name }
-                        )
+                items(state.dayGroups, key = { it.dayKey }) { group ->
+                    Text(
+                        group.dayLabel,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                    )
+                    group.items.forEach { txn ->
+                        Column(modifier = Modifier.clickable { onOpenTransaction(txn.id) }) {
+                            TransactionRow(
+                                txn = txn,
+                                categoryName = txn.categoryId?.let { state.categories[it]?.name }
+                            )
+                        }
                     }
                 }
-                if (state.items.isEmpty()) {
+                if (state.dayGroups.isEmpty()) {
                     item(key = "empty") {
                         Text(
                             "No transactions in ${state.periodLabel}",

@@ -153,4 +153,28 @@ object DateFormatters {
         cal.timeInMillis = ms
         return cal.get(Calendar.YEAR)
     }
+
+    /** Inclusive [start, end] millis for the IST calendar day containing [ms]. */
+    fun istDayRange(ms: Long): Pair<Long, Long> {
+        val cal = Calendar.getInstance(ist)
+        cal.timeInMillis = ms
+        cal.set(Calendar.HOUR_OF_DAY, 0)
+        cal.set(Calendar.MINUTE, 0)
+        cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        val start = cal.timeInMillis
+        cal.add(Calendar.DAY_OF_MONTH, 1)
+        val end = cal.timeInMillis - 1
+        return start to end
+    }
+
+    fun dayKey(ms: Long): String {
+        val cal = Calendar.getInstance(ist)
+        cal.timeInMillis = ms
+        return "%04d-%02d-%02d".format(
+            cal.get(Calendar.YEAR),
+            cal.get(Calendar.MONTH) + 1,
+            cal.get(Calendar.DAY_OF_MONTH)
+        )
+    }
 }

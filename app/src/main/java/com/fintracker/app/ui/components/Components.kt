@@ -16,8 +16,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fintracker.app.data.entity.TransactionEntity
+import com.fintracker.app.domain.model.PaymentMode
 import com.fintracker.app.domain.model.TransactionType
 import com.fintracker.app.ui.util.DateFormatters
 import com.fintracker.app.ui.util.MoneyFormat
@@ -98,4 +100,23 @@ fun SummaryPill(
             maxLines = 1
         )
     }
+}
+
+/**
+ * Chip labels must never wrap: a chip squeezed by its parent would otherwise break a long label
+ * such as "Net banking" into one character per line.
+ */
+@Composable
+fun ChipLabel(text: String) {
+    Text(text = text, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+}
+
+/** "NET_BANKING" -> "Net banking", keeping acronyms such as UPI upper-cased. */
+fun paymentModeLabel(mode: PaymentMode): String = when (mode) {
+    PaymentMode.UPI -> "UPI"
+    PaymentMode.DEBIT_CARD -> "Debit card"
+    PaymentMode.CREDIT_CARD -> "Credit card"
+    PaymentMode.NET_BANKING -> "Net banking"
+    PaymentMode.CASH -> "Cash"
+    PaymentMode.UNKNOWN -> "Other"
 }

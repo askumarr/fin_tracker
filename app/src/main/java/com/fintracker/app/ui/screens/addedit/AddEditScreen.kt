@@ -2,7 +2,8 @@ package com.fintracker.app.ui.screens.addedit
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,8 +31,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fintracker.app.domain.model.PaymentMode
 import com.fintracker.app.domain.model.TransactionType
+import com.fintracker.app.ui.components.ChipLabel
+import com.fintracker.app.ui.components.paymentModeLabel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddEditScreen(
     onDone: () -> Unit,
@@ -74,30 +77,38 @@ fun AddEditScreen(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 FilterChip(
                     selected = state.type == TransactionType.EXPENSE,
                     onClick = { viewModel.update { it.copy(type = TransactionType.EXPENSE) } },
-                    label = { Text("Expense") }
+                    label = { ChipLabel("Expense") }
                 )
                 FilterChip(
                     selected = state.type == TransactionType.INCOME,
                     onClick = { viewModel.update { it.copy(type = TransactionType.INCOME) } },
-                    label = { Text("Income") }
+                    label = { ChipLabel("Income") }
                 )
                 FilterChip(
                     selected = state.type == TransactionType.TRANSFER,
                     onClick = { viewModel.update { it.copy(type = TransactionType.TRANSFER) } },
-                    label = { Text("Transfer") }
+                    label = { ChipLabel("Transfer") }
                 )
             }
             Text("Payment mode", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 PaymentMode.entries.filter { it != PaymentMode.UNKNOWN }.forEach { mode ->
                     FilterChip(
                         selected = state.paymentMode == mode,
                         onClick = { viewModel.update { it.copy(paymentMode = mode) } },
-                        label = { Text(mode.name.replace('_', ' ')) }
+                        label = { ChipLabel(paymentModeLabel(mode)) }
                     )
                 }
             }
@@ -155,14 +166,14 @@ private fun DropdownField(
                 FilterChip(
                     selected = selectedId == null,
                     onClick = { onSelect(null) },
-                    label = { Text("None") }
+                    label = { ChipLabel("None") }
                 )
             }
             items(options, key = { it.first }) { (id, name) ->
                 FilterChip(
                     selected = selectedId == id,
                     onClick = { onSelect(id) },
-                    label = { Text(name) }
+                    label = { ChipLabel(name) }
                 )
             }
         }
@@ -188,14 +199,14 @@ private fun AccountPicker(
                 FilterChip(
                     selected = selectedId == null,
                     onClick = { onSelect(null) },
-                    label = { Text("None") }
+                    label = { ChipLabel("None") }
                 )
             }
             items(accounts, key = { it.first }) { (id, name) ->
                 FilterChip(
                     selected = selectedId == id,
                     onClick = { onSelect(id) },
-                    label = { Text(name) }
+                    label = { ChipLabel(name) }
                 )
             }
         }

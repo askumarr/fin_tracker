@@ -32,9 +32,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.fintracker.app.ui.components.CategorySlice
+import com.fintracker.app.ui.components.CategorySpendPie
 import com.fintracker.app.ui.components.ExpenseTrendChart
 import com.fintracker.app.ui.components.SummaryPill
 import com.fintracker.app.ui.components.TransactionRow
+import com.fintracker.app.ui.components.categoryPalette
 import com.fintracker.app.ui.util.MoneyFormat
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -133,19 +136,11 @@ fun DashboardScreen(
 
             if (state.categorySpend.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(20.dp))
-                Text("By category", style = MaterialTheme.typography.titleLarge)
-                Spacer(modifier = Modifier.height(8.dp))
-                state.categorySpend.forEach { (name, amount) ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(name)
-                        Text(MoneyFormat.formatPaise(amount), fontWeight = FontWeight.Medium)
+                CategorySpendPie(
+                    slices = state.categorySpend.mapIndexed { index, (name, amount) ->
+                        CategorySlice(name, amount, categoryPalette(index))
                     }
-                }
+                )
             }
 
             if (state.monthlyTrend.any { it.spentPaise > 0 }) {
