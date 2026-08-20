@@ -87,3 +87,29 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     testImplementation("com.google.truth:truth:1.4.4")
 }
+
+afterEvaluate {
+    val releasesDir = rootProject.layout.projectDirectory.dir("releases")
+
+    val copyDebugApk = tasks.register<Copy>("copyDebugApkToReleases") {
+        dependsOn("packageDebug")
+        from(layout.buildDirectory.dir("outputs/apk/debug"))
+        include("*.apk")
+        into(releasesDir)
+        rename { "app-debug.apk" }
+        duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    }
+    tasks.named("assembleDebug").configure { finalizedBy(copyDebugApk) }
+
+    tasks.findByName("assembleRelease")?.let { assembleRelease ->
+        val copyReleaseApk = tasks.register<Copy>("copyReleaseApkToReleases") {
+            dependsOn("packageRelease")
+            from(layout.buildDirectory.dir("outputs/apk/release"))
+            include("*.apk")
+            into(releasesDir)
+            rename { "app-release.apk" }
+            duplicatesStrategy = DuplicatesStrategy.INCLUDE
+        }
+        assembleRelease.finalizedBy(copyReleaseApk)
+    }
+}
