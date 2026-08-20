@@ -11,6 +11,8 @@ captures/
 .cxx/
 *.apk
 *.aab
+!releases/
+!releases/*.apk
 .tools/
 *.tar.gz
 *.zip
