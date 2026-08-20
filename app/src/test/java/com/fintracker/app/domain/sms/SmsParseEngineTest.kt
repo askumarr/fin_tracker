@@ -53,6 +53,70 @@ class SmsParseEngineTest {
     }
 
     @Test
+    fun keepsFullUtrAndSenderNameForRtgsCredit() {
+        val sms = SmsMessage(
+            sender = "CANBNK",
+            body = "An amount of INR 30,85,687.08 has been credited to XXXX6371 on 28/07/2026 " +
+                "towards RTGS by Sender TMF REDEMPTION POOL A/C, IFSC HDFC0000240, Sender A/c " +
+                "XXXX9201, HDFC BANK, MUMBAI SANDOZ HOUS, UTR HDFCR52026072888542568, " +
+                "Total Avail. Bal INR 4783179.35- Canara Bank",
+            receivedAt = 1_785_000_000_000L
+        )
+        val parsed = engine.parse(sms)!!
+        assertThat(parsed.amountPaise).isEqualTo(308_568_708L)
+        // The statement prints the same UTR, which is how the two rows find each other.
+        assertThat(parsed.reference).isEqualTo("HDFCR52026072888542568")
+        assertThat(parsed.merchant).isEqualTo("TMF REDEMPTION POOL A/C")
+    }
+
+    @Test
+    fun namesBeneficiaryForNeftDebit() {
+        val sms = SmsMessage(
+            sender = "CANBNK",
+            body = "An amount of INR 15,00,000.00 has been debited from XXXX6371 on 01/08/2026 " +
+                "towards NEFT fvg Benf PANKAJ KUMAR, IFSC SBIN0001216, UTR CNRBH00150424261, " +
+                "Total Avail. Bal INR 1827091.35- Canara Bank",
+            receivedAt = 1_785_100_000_000L
+        )
+        val parsed = engine.parse(sms)!!
+        assertThat(parsed.merchant).isEqualTo("PANKAJ KUMAR")
+        assertThat(parsed.reference).isEqualTo("CNRBH00150424261")
+    }
+
+    @Test
+    fun ignoresFailedUpiPayment() {
+        val sms = SmsMessage(
+            sender = "CANBNK",
+            body = "Payment of Rs.200.00 from A/C XXXX6371 to DANDU SIVA RAMAKRISHNA REDDY " +
+                "failed due to WRONG UPI PIN. If not done by you, call 18004250018.",
+            receivedAt = 1_781_276_000_000L
+        )
+        assertThat(engine.parse(sms)).isNull()
+    }
+
+    @Test
+    fun ignoresDeclinedCardTransaction() {
+        val sms = SmsMessage(
+            sender = "VM-ICICIB",
+            body = "Txn of INR 1,499.00 on ICICI Bank Card XX3007 was declined due to " +
+                "insufficient balance.",
+            receivedAt = 1_781_276_000_000L
+        )
+        assertThat(engine.parse(sms)).isNull()
+    }
+
+    @Test
+    fun keepsReversalCreditAfterFailedPayment() {
+        val sms = SmsMessage(
+            sender = "CANBNK",
+            body = "INR 200.00 credited to your A/C XXXX6371 on 12-06-26 towards reversal of " +
+                "failed UPI payment. Total Avail.Bal INR 5000.00",
+            receivedAt = 1_781_276_000_000L
+        )
+        assertThat(engine.parse(sms)).isNotNull()
+    }
+
+    @Test
     fun ignoresCreditCardEStatement() {
         val sms = SmsMessage(
             sender = "AD-IDFCFB",
@@ -463,6 +527,40 @@ class SmsParseEngineTest {
         assertThat(parsed).isNotNull()
         assertThat(parsed!!.amountPaise).isEqualTo(308_568_708L)
         assertThat(parsed.balanceAfterPaise).isEqualTo(478_317_935L)
+    }
+
+    @Test
+    fun extractsMerchantFromPaidThruToUpi() {
+        val sms = SmsMessage(
+            sender = "CANBNK",
+            body = "Rs.550.00 paid thru A/C xx6371 on 16-6-26 18:42:17 to pavan traders M, " +
+                "Upi ref 523456789012",
+            receivedAt = 1_700_000_000_000L
+        )
+        val parsed = engine.parse(sms)
+        assertThat(parsed).isNotNull()
+        assertThat(parsed!!.amountPaise).isEqualTo(55_000L)
+        assertThat(parsed.type).isEqualTo(TransactionType.EXPENSE)
+        assertThat(parsed.paymentMode).isEqualTo(PaymentMode.UPI)
+        assertThat(parsed.merchant).isEqualTo("pavan traders M")
+        assertThat(parsed.reference).isEqualTo("523456789012")
+    }
+
+    @Test
+    fun extractsMerchantFromAcctDrToUpi() {
+        val sms = SmsMessage(
+            sender = "CANBNK",
+            body = "Dear Customer, Acct XXXX6371 Dr, INR 150.00 on 26/06/26 to " +
+                "RAM REDDY CHICKEN MARKET; UPI: 523456789013",
+            receivedAt = 1_700_000_000_000L
+        )
+        val parsed = engine.parse(sms)
+        assertThat(parsed).isNotNull()
+        assertThat(parsed!!.amountPaise).isEqualTo(15_000L)
+        assertThat(parsed.type).isEqualTo(TransactionType.EXPENSE)
+        assertThat(parsed.paymentMode).isEqualTo(PaymentMode.UPI)
+        assertThat(parsed.merchant).isEqualTo("RAM REDDY CHICKEN MARKET")
+        assertThat(parsed.maskedAccount).isEqualTo("XXXX6371")
     }
 
     @Test

@@ -41,7 +41,11 @@ class SmsIngestionService @Inject constructor(
             masked = parsed.maskedAccount,
             sender = parsed.sender
         )
-        val categoryId = transactionRepository.suggestCategory(parsed.merchant)
+        val categoryId = transactionRepository.suggestCategory(
+            merchant = parsed.merchant,
+            rawText = parsed.rawSnippet,
+            type = type
+        )
         val entity = TransactionEntity(
             amountPaise = parsed.amountPaise,
             type = type,

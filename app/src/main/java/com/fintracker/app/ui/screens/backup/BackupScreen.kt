@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.fintracker.app.data.repository.TransactionRepository
 import com.fintracker.app.domain.backup.BackupService
+import com.fintracker.app.domain.model.TransactionSource
 import com.fintracker.app.domain.sms.SmsInboxScanner
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -97,10 +98,19 @@ class BackupViewModel @Inject constructor(
         }
     }
 
+    fun clearPdfImports() {
+        viewModelScope.launch {
+            val removed = transactionRepository.deleteImportedFrom(TransactionSource.PDF)
+            _message.value = "Removed $removed PDF-imported entry(s). Import the statement again."
+        }
+    }
+
     fun mergeDuplicatesNow() {
         viewModelScope.launch {
-            val txns = transactionRepository.mergeSameDaySmsDuplicates()
-            _message.value = "Merged $txns same-day SMS duplicate(s)"
+            val sms = transactionRepository.mergeSameDaySmsDuplicates()
+            val statement = transactionRepository.mergeStatementSmsDuplicates()
+            _message.value = "Merged $sms same-day SMS duplicate(s) and " +
+                "$statement statement/SMS duplicate(s)"
         }
     }
 
@@ -264,7 +274,13 @@ fun BackupScreen(viewModel: BackupViewModel = hiltViewModel()) {
                 onClick = viewModel::mergeDuplicatesNow,
                 enabled = !rescanning,
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Merge same-day SMS duplicates") }
+            ) { Text("Merge duplicates (SMS + statement)") }
+
+            OutlinedButton(
+                onClick = viewModel::clearPdfImports,
+                enabled = !rescanning,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Remove PDF-imported entries") }
 
             Text(
                 "Rebuild deletes auto-captured SMS entries in the window and re-reads them, so " +

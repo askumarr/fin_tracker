@@ -205,6 +205,23 @@ class SmsTemplateLoader @Inject constructor(
                 confidence = 0.8f
             ),
             SmsTemplate(
+                id = "generic_upi_paid_to_merchant",
+                bankHint = null,
+                senderPatterns = listOf(".*"),
+                bodyPatterns = listOf(
+                    // "Rs.550.00 paid thru A/C xx6371 on 16-6-26 18:42:17 to pavan traders M, Upi ref ..."
+                    """(?i)(?:Rs\.?|INR|₹)\s*([0-9,]+\.?[0-9]*)\s+paid\s+(?:thru|through|via)\b.*?\bto\s+(.+?)\s*[,;]?\s*(?:UPI|Upi)\s*ref""",
+                    // "Acct XXXX6371 Dr, INR 150.00 on 26/06/26 to RAM REDDY CHICKEN MARKET; UPI: ..."
+                    """(?i)\b(?:Acct|A/C|Account)\b.*?\bDr\b.*?(?:Rs\.?|INR|₹)\s*([0-9,]+\.?[0-9]*).*?\bto\s+(.+?)\s*[,;]?\s*(?:UPI|Upi)\b""",
+                    // Generic UPI debit/paid "... to MERCHANT ... UPI Ref/:"
+                    """(?i)(?:Rs\.?|INR|₹)\s*([0-9,]+\.?[0-9]*)\s+(?:debited|paid|spent).*?\bto\s+(.+?)\s*[,;]?\s*(?:UPI\s*Ref|Upi\s*ref|UPI\s*:|Ref)\b"""
+                ),
+                merchantGroup = 2,
+                type = TransactionType.EXPENSE,
+                paymentMode = PaymentMode.UPI,
+                confidence = 0.84f
+            ),
+            SmsTemplate(
                 id = "generic_payment_success",
                 bankHint = null,
                 senderPatterns = listOf(".*"),

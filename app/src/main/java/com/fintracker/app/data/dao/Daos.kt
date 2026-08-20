@@ -13,6 +13,7 @@ import com.fintracker.app.data.entity.MerchantCategoryRuleEntity
 import com.fintracker.app.data.entity.SmsSenderRuleEntity
 import com.fintracker.app.data.entity.TransactionEntity
 import com.fintracker.app.domain.model.ReviewStatus
+import com.fintracker.app.domain.model.TransactionSource
 import com.fintracker.app.domain.model.TransactionType
 import kotlinx.coroutines.flow.Flow
 
@@ -26,6 +27,9 @@ interface CategoryDao {
 
     @Query("SELECT * FROM categories WHERE id = :id")
     suspend fun getById(id: Long): CategoryEntity?
+
+    @Query("SELECT * FROM categories WHERE LOWER(name) = LOWER(:name) LIMIT 1")
+    suspend fun findByName(name: String): CategoryEntity?
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(category: CategoryEntity): Long
@@ -136,6 +140,25 @@ interface TransactionDao {
         dayEnd: Long
     ): List<TransactionEntity>
 
+    /**
+     * Any-source candidates for the same amount on the same IST day. Used to pair a statement
+     * (CSV/PDF) row with the SMS row for the same transaction.
+     */
+    @Query(
+        """
+        SELECT * FROM transactions
+        WHERE amountPaise = :amountPaise
+          AND occurredAt BETWEEN :dayStart AND :dayEnd
+          AND reviewStatus != 'DISMISSED'
+        ORDER BY id ASC
+        """
+    )
+    suspend fun findSameDayAnySource(
+        amountPaise: Long,
+        dayStart: Long,
+        dayEnd: Long
+    ): List<TransactionEntity>
+
     @Query(
         """
         SELECT * FROM transactions
@@ -148,8 +171,26 @@ interface TransactionDao {
     )
     suspend fun findByReferenceAndAmount(reference: String, amountPaise: Long): TransactionEntity?
 
+    @Query(
+        """
+        SELECT * FROM transactions
+        WHERE reference IS NOT NULL
+          AND reference = :reference
+          AND amountPaise = :amountPaise
+        ORDER BY id ASC
+        LIMIT 1
+        """
+    )
+    suspend fun findAnySourceByReferenceAndAmount(
+        reference: String,
+        amountPaise: Long
+    ): TransactionEntity?
+
     @Query("SELECT * FROM transactions WHERE source = 'SMS' ORDER BY occurredAt DESC")
     suspend fun getAllSms(): List<TransactionEntity>
+
+    @Query("DELETE FROM transactions WHERE source = :source")
+    suspend fun deleteBySource(source: TransactionSource): Int
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(transaction: TransactionEntity): Long

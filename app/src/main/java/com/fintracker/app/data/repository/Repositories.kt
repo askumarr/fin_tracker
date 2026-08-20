@@ -11,9 +11,13 @@ import com.fintracker.app.data.entity.CategoryEntity
 import com.fintracker.app.data.entity.ImportJobEntity
 import com.fintracker.app.data.entity.MerchantCategoryRuleEntity
 import com.fintracker.app.data.entity.TransactionEntity
+import com.fintracker.app.domain.category.CategoryClassifier
+import com.fintracker.app.domain.dedupe.TransactionMatcher
+import com.fintracker.app.domain.model.PaymentMode
 import com.fintracker.app.domain.model.ReviewStatus
 import com.fintracker.app.domain.model.TransactionSource
 import com.fintracker.app.domain.model.TransactionType
+import com.fintracker.app.domain.model.isStatement
 import com.fintracker.app.domain.sms.SmsParseEngine
 import com.fintracker.app.ui.util.DateFormatters
 import kotlinx.coroutines.flow.Flow
@@ -26,9 +30,12 @@ import javax.inject.Singleton
 @Singleton
 class TransactionRepository @Inject constructor(
     private val transactionDao: TransactionDao,
-    private val merchantCategoryRuleDao: MerchantCategoryRuleDao
+    private val merchantCategoryRuleDao: MerchantCategoryRuleDao,
+    private val categoryDao: CategoryDao
 ) {
     private val insertLock = Mutex()
+    private val categoryIdByName = Mutex()
+    @Volatile private var categoryNameCache: Map<String, Long> = emptyMap()
 
     fun observeAll(): Flow<List<TransactionEntity>> = transactionDao.observeAll()
 
@@ -49,13 +56,21 @@ class TransactionRepository @Inject constructor(
     suspend fun findByDedupeKey(key: String): TransactionEntity? =
         transactionDao.findByDedupeKey(key)
 
-    /** @return Pair(id, wasDuplicate) */
-    suspend fun insertDeduped(transaction: TransactionEntity): Pair<Long, Boolean> =
+    /**
+     * @param claimedIds ids already matched during the current import run. A statement row only
+     *   pairs with a row nobody else claimed, so three ₹10,000 debits on one day stay three rows.
+     * @return Pair(id, wasDuplicate)
+     */
+    suspend fun insertDeduped(
+        transaction: TransactionEntity,
+        claimedIds: MutableSet<Long>? = null
+    ): Pair<Long, Boolean> =
         insertLock.withLock {
             transaction.dedupeKey?.let { key ->
                 val existing = transactionDao.findByDedupeKey(key)
                 if (existing != null) {
                     maybeEnrich(existing, transaction)
+                    claimedIds?.add(existing.id)
                     return@withLock existing.id to true
                 }
             }
@@ -63,6 +78,13 @@ class TransactionRepository @Inject constructor(
             if (transaction.source == TransactionSource.SMS) {
                 findSameDaySibling(transaction)?.let { sibling ->
                     maybeEnrich(sibling, transaction)
+                    claimedIds?.add(sibling.id)
+                    return@withLock sibling.id to true
+                }
+            } else if (transaction.source.isStatement()) {
+                findStatementSibling(transaction, claimedIds)?.let { sibling ->
+                    maybeEnrich(sibling, transaction)
+                    claimedIds?.add(sibling.id)
                     return@withLock sibling.id to true
                 }
             }
@@ -74,6 +96,7 @@ class TransactionRepository @Inject constructor(
                 } ?: 0L
                 return@withLock existingId to true
             }
+            claimedIds?.add(id)
             return@withLock id to false
         }
 
@@ -99,6 +122,10 @@ class TransactionRepository @Inject constructor(
     /** Rows must be removed rather than dismissed, so a rescan is free to re-create them. */
     suspend fun deleteSmsImportedSince(since: Long): Int =
         transactionDao.deleteSmsImportedSince(since)
+
+    /** Statement rows are always re-creatable from the source file, so a re-import can start clean. */
+    suspend fun deleteImportedFrom(source: TransactionSource): Int =
+        transactionDao.deleteBySource(source)
 
     /**
      * Collapse historical SMS duplicates: same amount + type + IST day when at least one
@@ -202,6 +229,79 @@ class TransactionRepository @Inject constructor(
         return null
     }
 
+    /**
+     * Find the row that already represents this statement (CSV/PDF) line — normally the SMS alert
+     * captured when the payment happened. Candidates are same amount + same IST day; the rest of
+     * the decision lives in [TransactionMatcher].
+     */
+    private suspend fun findStatementSibling(
+        transaction: TransactionEntity,
+        claimedIds: Set<Long>?
+    ): TransactionEntity? {
+        transaction.reference?.takeIf { it.isNotBlank() }?.let { ref ->
+            transactionDao.findAnySourceByReferenceAndAmount(ref, transaction.amountPaise)
+                ?.takeIf { claimedIds?.contains(it.id) != true }
+                ?.let { return it }
+        }
+
+        val (dayStart, dayEnd) = DateFormatters.istDayRange(transaction.occurredAt)
+        val candidates = transactionDao.findSameDayAnySource(
+            amountPaise = transaction.amountPaise,
+            dayStart = dayStart,
+            dayEnd = dayEnd
+        ).filter { claimedIds?.contains(it.id) != true }
+
+        return candidates
+            .mapNotNull { existing ->
+                TransactionMatcher.score(transaction.toCandidate(), existing.toCandidate())
+                    ?.let { existing to it }
+            }
+            .maxByOrNull { it.second }
+            ?.first
+    }
+
+    /**
+     * Collapse duplicates that already exist because a statement was imported before statement
+     * rows knew how to pair with SMS rows.
+     */
+    suspend fun mergeStatementSmsDuplicates(): Int = insertLock.withLock {
+        val all = transactionDao.getAllForBackup()
+            .filter { it.reviewStatus != ReviewStatus.DISMISSED }
+        val groups = all.groupBy { "${it.amountPaise}|${DateFormatters.dayKey(it.occurredAt)}" }
+        var removed = 0
+        for ((_, rows) in groups) {
+            if (rows.size < 2) continue
+            val sms = rows.filter { it.source == TransactionSource.SMS }
+            val statements = rows.filter { it.source.isStatement() }
+            if (sms.isEmpty() || statements.isEmpty()) continue
+
+            val claimed = mutableSetOf<Long>()
+            for (statement in statements.sortedBy { it.id }) {
+                val match = sms
+                    .filter { it.id !in claimed }
+                    .mapNotNull { candidate ->
+                        TransactionMatcher.score(statement.toCandidate(), candidate.toCandidate())
+                            ?.let { candidate to it }
+                    }
+                    .maxByOrNull { it.second }
+                    ?.first ?: continue
+                claimed.add(match.id)
+                maybeEnrich(match, statement)
+                transactionDao.deleteById(statement.id)
+                removed++
+            }
+        }
+        removed
+    }
+
+    private fun TransactionEntity.toCandidate() = TransactionMatcher.Candidate(
+        type = type,
+        merchant = merchant,
+        reference = reference,
+        balanceAfterPaise = balanceAfterPaise,
+        occurredAt = occurredAt
+    )
+
     /** True when both rows carry a closing balance and those balances are different. */
     private fun balancesDiffer(a: TransactionEntity, b: TransactionEntity): Boolean {
         val ab = a.balanceAfterPaise
@@ -230,6 +330,26 @@ class TransactionRepository @Inject constructor(
             next = next.copy(reference = incoming.reference)
             changed = true
         }
+        // A statement line knows the real payment mode and closing balance where an SMS often
+        // does not, so let those fill the gaps instead of being dropped with the duplicate.
+        if (existing.paymentMode == PaymentMode.UNKNOWN &&
+            incoming.paymentMode != PaymentMode.UNKNOWN
+        ) {
+            next = next.copy(paymentMode = incoming.paymentMode)
+            changed = true
+        }
+        if (existing.balanceAfterPaise == null && incoming.balanceAfterPaise != null) {
+            next = next.copy(balanceAfterPaise = incoming.balanceAfterPaise)
+            changed = true
+        }
+        if (existing.categoryId == null && incoming.categoryId != null) {
+            next = next.copy(categoryId = incoming.categoryId)
+            changed = true
+        }
+        if (existing.accountId == null && incoming.accountId != null) {
+            next = next.copy(accountId = incoming.accountId)
+            changed = true
+        }
         if (changed) {
             transactionDao.update(next.copy(updatedAt = System.currentTimeMillis()))
         }
@@ -237,17 +357,70 @@ class TransactionRepository @Inject constructor(
 
     suspend fun rememberMerchantCategory(merchant: String?, categoryId: Long?) {
         if (merchant.isNullOrBlank() || categoryId == null) return
+        val full = CategoryClassifier.normalizeKey(merchant)
+        if (full.isBlank()) return
         merchantCategoryRuleDao.upsert(
-            MerchantCategoryRuleEntity(
-                merchantKey = merchant.trim().lowercase(),
-                categoryId = categoryId
-            )
+            MerchantCategoryRuleEntity(merchantKey = full, categoryId = categoryId)
         )
+        CategoryClassifier.merchantRoot(merchant)?.let { root ->
+            if (root != full) {
+                merchantCategoryRuleDao.upsert(
+                    MerchantCategoryRuleEntity(merchantKey = root, categoryId = categoryId)
+                )
+            }
+        }
     }
 
-    suspend fun suggestCategory(merchant: String?): Long? {
-        if (merchant.isNullOrBlank()) return null
-        return merchantCategoryRuleDao.find(merchant.trim().lowercase())?.categoryId
+    /**
+     * Suggest a category id: learned exact/root rules first, then built-in India keyword map,
+     * then type heuristics (transfers / salary).
+     */
+    suspend fun suggestCategory(
+        merchant: String?,
+        rawText: String? = null,
+        type: TransactionType? = null
+    ): Long? {
+        if (type == TransactionType.TRANSFER) {
+            return categoryIdForName("Transfers")
+        }
+
+        val full = merchant?.let { CategoryClassifier.normalizeKey(it) }.orEmpty()
+        if (full.isNotBlank()) {
+            merchantCategoryRuleDao.find(full)?.categoryId?.let { return it }
+            CategoryClassifier.merchantRoot(merchant.orEmpty())?.let { root ->
+                merchantCategoryRuleDao.find(root)?.categoryId?.let { return it }
+            }
+            // Learned root / phrase contained as a whole token in this merchant
+            // (e.g. rule "amazon" matches "amazon pay in e").
+            val tokens = full.split(' ').filter { it.isNotBlank() }.toSet()
+            for (rule in merchantCategoryRuleDao.getAll()) {
+                val key = rule.merchantKey
+                if (key.length < 3) continue
+                if (key in tokens || tokens.any { it.startsWith(key) && it.length <= key.length + 2 }) {
+                    return rule.categoryId
+                }
+                if (full.startsWith("$key ") || full.contains(" $key ")) return rule.categoryId
+            }
+        }
+
+        val suggestion = CategoryClassifier.suggestCategoryName(
+            merchant = merchant,
+            rawText = rawText,
+            type = type
+        ) ?: return null
+        return categoryIdForName(suggestion.categoryName)
+    }
+
+    private suspend fun categoryIdForName(name: String): Long? {
+        val key = name.lowercase(Locale.US)
+        categoryNameCache[key]?.let { return it }
+        return categoryIdByName.withLock {
+            categoryNameCache[key]?.let { return@withLock it }
+            val refreshed = categoryDao.getAll()
+                .associate { it.name.lowercase(Locale.US) to it.id }
+            categoryNameCache = refreshed
+            refreshed[key] ?: categoryDao.findByName(name)?.id
+        }
     }
 
     suspend fun getAllForBackup(): List<TransactionEntity> = transactionDao.getAllForBackup()

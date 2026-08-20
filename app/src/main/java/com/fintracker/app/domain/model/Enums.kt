@@ -23,8 +23,13 @@ enum class TransactionType {
 enum class TransactionSource {
     SMS,
     CSV,
+    PDF,
     MANUAL
 }
+
+/** Bank statement imports, which restate transactions the SMS listener may already have. */
+fun TransactionSource.isStatement(): Boolean =
+    this == TransactionSource.CSV || this == TransactionSource.PDF
 
 enum class ReviewStatus {
     NONE,

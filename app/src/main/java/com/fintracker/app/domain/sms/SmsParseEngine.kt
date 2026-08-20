@@ -53,7 +53,10 @@ class SmsParseEngine(
                 if (!matcher.find()) continue
                 val amount = parseAmountToPaise(matcher.groupOrNull(template.amountGroup)) ?: continue
                 val merchant = template.merchantGroup?.let { matcher.groupOrNull(it)?.trim() }
+                    ?.takeIf { it.isNotBlank() }
+                    ?: extractMerchant(body)
                 val reference = template.referenceGroup?.let { matcher.groupOrNull(it)?.trim() }
+                    ?: extractReference(body)
                 val balance = template.balanceGroup?.let { parseAmountToPaise(matcher.groupOrNull(it)) }
                     ?: extractBalance(body)
                 val account = template.accountGroup?.let { matcher.groupOrNull(it)?.trim() }
@@ -94,11 +97,12 @@ class SmsParseEngine(
             val type = resolveDirection(body)
             val reference = extractReference(body)
             val balance = extractBalance(body)
+            val merchant = extractMerchant(body)
             return ParsedSmsTransaction(
                 amountPaise = amount,
                 type = type,
                 paymentMode = refinePaymentMode(body, com.fintracker.app.domain.model.PaymentMode.UNKNOWN),
-                merchant = null,
+                merchant = merchant,
                 reference = reference,
                 balanceAfterPaise = balance,
                 maskedAccount = extractMaskedAccount(body),
@@ -112,7 +116,7 @@ class SmsParseEngine(
                     amount,
                     message.receivedAt,
                     reference,
-                    null,
+                    merchant,
                     message.sender,
                     balance
                 )
@@ -122,7 +126,28 @@ class SmsParseEngine(
     }
 
     fun isOtpOrNoise(body: String): Boolean =
-        isOtpMessage(body) || isStatementOrReminder(body) || isInvestmentConfirmation(body)
+        isOtpMessage(body) || isStatementOrReminder(body) || isInvestmentConfirmation(body) ||
+            isFailedPayment(body)
+
+    /**
+     * A declined payment quotes an amount that never left the account ("Payment of Rs.200 to DANDU
+     * SIVA REDDY failed due to WRONG UPI PIN"). A reversal is different: money moved and came back,
+     * and the bank sends its own credit alert for that.
+     */
+    fun isFailedPayment(body: String): Boolean {
+        val failed = Regex(
+            "(?i)\\b(?:failed|declined|unsuccessful|could\\s+not\\s+be\\s+(?:processed|completed)|" +
+                "was\\s+not\\s+(?:processed|successful)|rejected|timed\\s*out|" +
+                "insufficient\\s+(?:balance|funds))\\b"
+        ).containsMatchIn(body)
+        if (!failed) return false
+        // "...has been debited. If this was not you, report failure" style copy still moved money.
+        return !Regex(
+            "(?i)\\b(?:reversed|reversal|refunded)\\b|" +
+                "\\bfail(?:ed|ure)?\\s+(?:transaction\\s+)?(?:amount\\s+)?(?:has\\s+been\\s+)?" +
+                "(?:credited|reversed)\\b"
+        ).containsMatchIn(body)
+    }
 
     /**
      * OTP alerts quote the amount of a transaction that has not happened yet ("851278 is One-Time
@@ -330,8 +355,64 @@ class SmsParseEngine(
         return Regex(masked).find(body)?.groupValues?.getOrNull(1)
     }
 
-    private fun extractReference(body: String): String? =
-        Regex("(?i)(?:UPI\\s*Ref|Ref(?:erence)?|UTR)[^0-9]*([0-9]{6,})").find(body)?.groupValues?.getOrNull(1)
+    /**
+     * Keeps the whole identifier, letters included: a bank quotes "UTR HDFCR52026072888542568" and
+     * the statement for the same transfer prints exactly that, so dropping the prefix loses the
+     * strongest signal for matching the two.
+     */
+    private fun extractReference(body: String): String? {
+        Regex(
+            "(?i)(?:UPI\\s*Ref(?:erence)?|Ref(?:erence)?|UTR)\\s*(?:no\\.?|num(?:ber)?)?\\s*" +
+                "[:#-]?\\s*([A-Za-z0-9]{6,})"
+        ).find(body)?.groupValues?.getOrNull(1)
+            ?.takeIf { ref -> ref.any { it.isDigit() } }
+            ?.let { return it }
+        return Regex("(?i)(?:UPI\\s*Ref|Ref(?:erence)?|UTR)[^0-9]*([0-9]{6,})")
+            .find(body)?.groupValues?.getOrNull(1)
+    }
+
+    /**
+     * Party after "to" / "towards" in UPI and account-debit alerts
+     * ("... to pavan traders M, Upi ref ...", "... to RAM REDDY CHICKEN MARKET; UPI: ...").
+     * Skips account masks and fraud-report boilerplate.
+     */
+    fun extractMerchant(body: String): String? {
+        // NEFT/RTGS alerts name the counterparty explicitly ("towards RTGS by Sender TMF
+        // REDEMPTION POOL A/C, IFSC HDFC0000240"), which beats the generic "to ..." scan below.
+        Regex(
+            "(?i)\\b(?:by\\s+Sender|from\\s+Sender|fvg\\s+Benf|Benf(?:iciary)?)\\s*[:\\-]?\\s*" +
+                // "TMF REDEMPTION POOL A/C" keeps its suffix; "... A/c XXXX9201" is a field, so the
+                // account guard only fires when a masked number follows.
+                "(.+?)(?=\\s*[,;]|\\s+IFSC\\b|\\s+A/[Cc]\\.?\\s+(?:no\\.?\\s*)?[Xx*0-9]{3,}|$)"
+        ).find(body)?.groupValues?.getOrNull(1)
+            ?.trim()
+            ?.replace(Regex("\\s+"), " ")
+            ?.take(60)
+            ?.takeIf { it.length >= 3 }
+            ?.let { return it }
+
+        val match = Regex(
+            "(?i)\\b(?:to|towards)\\s+(.+?)(?=\\s*[,;.]?\\s*(?:UPI\\s*Ref|Upi\\s*ref|UPI\\s*:|Ref(?:erence)?\\b|UTR\\b)|$)"
+        ).find(body) ?: return null
+        val raw = match.groupValues[1].trim().trimEnd(',', ';', '.', ' ')
+            .replace(Regex("\\s+"), " ")
+            .take(60)
+        if (raw.length < 2) return null
+        val compact = raw.replace(" ", "")
+        if (Regex("(?i)^[Xx*0-9]+$").matches(compact)) return null
+        // "credited to XXXX6371 on 28/07/2026 towards RTGS ..." names an account, not a party.
+        if (Regex("(?i)^[Xx*]{2,}[0-9]{2,}\\b").containsMatchIn(raw)) return null
+        val lower = raw.lowercase(Locale.US)
+        if (lower.startsWith("your ") ||
+            lower.startsWith("report") ||
+            "cyber fraud" in lower ||
+            lower.startsWith("a/c") ||
+            lower.startsWith("acct")
+        ) {
+            return null
+        }
+        return raw
+    }
 
     /**
      * Closing/available balance printed by most bank alerts ("Total Avail.bal INR 17,88,623.39",
