@@ -15,3 +15,8 @@ captures/
 *.tar.gz
 *.zip
 .kotlin/
+# Personal bank statements (never commit)
+*.CSV
+*.csv
+*Passbook*.pdf
+*e-Passbook*.pdf

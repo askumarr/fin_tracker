@@ -101,7 +101,8 @@ fun MoreScreen(
                 trailingContent = { TextButton(onClick = onRecurring) { Text("Open") } }
             )
             ListItem(
-                headlineContent = { Text("Import CSV") },
+                headlineContent = { Text("Import statement") },
+                supportingContent = { Text("CSV or Canara e-Passbook PDF") },
                 leadingContent = { Icon(Icons.Default.UploadFile, null) },
                 trailingContent = { TextButton(onClick = onImport) { Text("Open") } }
             )
