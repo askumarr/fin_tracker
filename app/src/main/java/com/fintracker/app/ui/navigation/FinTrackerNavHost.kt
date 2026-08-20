@@ -38,6 +38,8 @@ object Routes {
     const val Onboarding = "onboarding"
     const val Dashboard = "dashboard"
     const val Transactions = "transactions"
+    const val TransactionsRoute = "transactions?year={year}&month={month}"
+    fun transactions(year: Int, month: Int) = "transactions?year=$year&month=$month"
     const val Categories = "categories"
     const val More = "more"
     const val Review = "review"
@@ -57,12 +59,9 @@ fun FinTrackerNavHost(startOnboarding: Boolean) {
     val backStack by navController.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
 
-    val showBottomBar = current in setOf(
-        Routes.Dashboard,
-        Routes.Transactions,
-        Routes.Categories,
-        Routes.More
-    )
+    val onTransactions = current?.startsWith(Routes.Transactions) == true
+    val showBottomBar = current in setOf(Routes.Dashboard, Routes.Categories, Routes.More) ||
+        onTransactions
 
     Scaffold(
         bottomBar = {
@@ -83,7 +82,7 @@ fun FinTrackerNavHost(startOnboarding: Boolean) {
                         label = { Text("Home") }
                     )
                     NavigationBarItem(
-                        selected = current == Routes.Transactions,
+                        selected = onTransactions,
                         onClick = {
                             navController.navigate(Routes.Transactions) {
                                 popUpTo(navController.graph.findStartDestination().id) {
@@ -146,12 +145,33 @@ fun FinTrackerNavHost(startOnboarding: Boolean) {
                 DashboardScreen(
                     onAdd = { navController.navigate(Routes.addEdit()) },
                     onReview = { navController.navigate(Routes.Review) },
-                    onOpenTransaction = { id -> navController.navigate(Routes.addEdit(id)) }
+                    onOpenTransaction = { id -> navController.navigate(Routes.addEdit(id)) },
+                    onOpenHistoryMonth = { period ->
+                        navController.navigate(Routes.transactions(period.year, period.month)) {
+                            launchSingleTop = true
+                        }
+                    }
                 )
             }
-            composable(Routes.Transactions) {
+            composable(
+                route = Routes.TransactionsRoute,
+                arguments = listOf(
+                    navArgument("year") {
+                        type = NavType.IntType
+                        defaultValue = -1
+                    },
+                    navArgument("month") {
+                        type = NavType.IntType
+                        defaultValue = -1
+                    }
+                )
+            ) { entry ->
+                val year = entry.arguments?.getInt("year")?.takeIf { it > 0 }
+                val month = entry.arguments?.getInt("month")?.takeIf { it in 1..12 }
                 TransactionsScreen(
-                    onOpenTransaction = { id -> navController.navigate(Routes.addEdit(id)) }
+                    onOpenTransaction = { id -> navController.navigate(Routes.addEdit(id)) },
+                    initialYear = year,
+                    initialMonth = month
                 )
             }
             composable(Routes.Categories) { CategoriesScreen() }

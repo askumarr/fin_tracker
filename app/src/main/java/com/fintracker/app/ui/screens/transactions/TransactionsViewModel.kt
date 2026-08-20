@@ -41,6 +41,7 @@ data class TransactionsUiState(
     val availableYears: List<Int> = emptyList(),
     val typeFilter: TransactionType? = null,
     val modeFilter: PaymentMode? = null,
+    val categoryFilterId: Long? = null,
     val searchQuery: String = "",
     val spentPaise: Long = 0,
     val creditedPaise: Long = 0,
@@ -66,6 +67,7 @@ class TransactionsViewModel @Inject constructor(
             year = DateFormatters.currentYearPeriod(),
             typeFilter = null,
             modeFilter = null,
+            categoryFilterId = null,
             searchQuery = ""
         )
     )
@@ -76,6 +78,7 @@ class TransactionsViewModel @Inject constructor(
         val year: DateFormatters.YearPeriod,
         val typeFilter: TransactionType?,
         val modeFilter: PaymentMode?,
+        val categoryFilterId: Long?,
         val searchQuery: String
     )
 
@@ -126,6 +129,7 @@ class TransactionsViewModel @Inject constructor(
                     availableYears = years,
                     typeFilter = sel.typeFilter,
                     modeFilter = sel.modeFilter,
+                    categoryFilterId = sel.categoryFilterId,
                     searchQuery = sel.searchQuery,
                     spentPaise = inMonth.filter { it.type == TransactionType.EXPENSE }
                         .sumOf { it.amountPaise },
@@ -184,6 +188,7 @@ class TransactionsViewModel @Inject constructor(
                     availableYears = years,
                     typeFilter = sel.typeFilter,
                     modeFilter = sel.modeFilter,
+                    categoryFilterId = sel.categoryFilterId,
                     searchQuery = sel.searchQuery,
                     spentPaise = inYear.filter { it.type == TransactionType.EXPENSE }
                         .sumOf { it.amountPaise },
@@ -258,9 +263,14 @@ class TransactionsViewModel @Inject constructor(
         selection.update { it.copy(modeFilter = mode) }
     }
 
+    fun setCategoryFilter(categoryId: Long?) {
+        selection.update { it.copy(categoryFilterId = categoryId) }
+    }
+
     private fun matchesFilters(txn: TransactionEntity, sel: Selection): Boolean {
         if (sel.typeFilter != null && txn.type != sel.typeFilter) return false
         if (sel.modeFilter != null && txn.paymentMode != sel.modeFilter) return false
+        if (sel.categoryFilterId != null && txn.categoryId != sel.categoryFilterId) return false
         val q = sel.searchQuery.trim()
         if (q.isNotEmpty()) {
             val haystack = listOfNotNull(

@@ -38,6 +38,7 @@ import com.fintracker.app.ui.components.ExpenseTrendChart
 import com.fintracker.app.ui.components.SummaryPill
 import com.fintracker.app.ui.components.TransactionRow
 import com.fintracker.app.ui.components.categoryPalette
+import com.fintracker.app.ui.util.DateFormatters
 import com.fintracker.app.ui.util.MoneyFormat
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -46,6 +47,7 @@ fun DashboardScreen(
     onAdd: () -> Unit,
     onReview: () -> Unit,
     onOpenTransaction: (Long) -> Unit,
+    onOpenHistoryMonth: (DateFormatters.MonthPeriod) -> Unit,
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -145,7 +147,10 @@ fun DashboardScreen(
 
             if (state.monthlyTrend.any { it.spentPaise > 0 }) {
                 Spacer(modifier = Modifier.height(20.dp))
-                ExpenseTrendChart(points = state.monthlyTrend)
+                ExpenseTrendChart(
+                    points = state.monthlyTrend,
+                    onMonthClick = onOpenHistoryMonth
+                )
             }
 
             Spacer(modifier = Modifier.height(20.dp))

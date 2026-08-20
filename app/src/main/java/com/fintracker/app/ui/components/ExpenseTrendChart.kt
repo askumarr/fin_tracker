@@ -1,6 +1,7 @@
 package com.fintracker.app.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,6 +20,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.fintracker.app.ui.util.DateFormatters
@@ -34,7 +36,8 @@ fun ExpenseTrendChart(
     points: List<MonthlySpendPoint>,
     modifier: Modifier = Modifier,
     barColor: Color = MaterialTheme.colorScheme.primary,
-    lineColor: Color = MaterialTheme.colorScheme.secondary
+    lineColor: Color = MaterialTheme.colorScheme.secondary,
+    onMonthClick: ((DateFormatters.MonthPeriod) -> Unit)? = null
 ) {
     if (points.isEmpty()) return
 
@@ -74,6 +77,21 @@ fun ExpenseTrendChart(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(160.dp)
+                .pointerInput(points, onMonthClick) {
+                    if (onMonthClick == null) return@pointerInput
+                    detectTapGestures { tap ->
+                        val gap = 6.dp.toPx()
+                        val barWidth = ((size.width - gap * (points.size + 1)) / points.size)
+                            .coerceAtLeast(8.dp.toPx())
+                        val index = ((tap.x - gap) / (barWidth + gap)).toInt()
+                        if (index in points.indices) {
+                            val barLeft = gap + index * (barWidth + gap)
+                            if (tap.x in barLeft..(barLeft + barWidth)) {
+                                onMonthClick(points[index].period)
+                            }
+                        }
+                    }
+                }
         ) {
             val labelReserve = 22.dp.toPx()
             val chartHeight = size.height - labelReserve

@@ -27,6 +27,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,10 +50,19 @@ import com.fintracker.app.ui.util.MoneyFormat
 @Composable
 fun TransactionsScreen(
     onOpenTransaction: (Long) -> Unit,
+    initialYear: Int? = null,
+    initialMonth: Int? = null,
     viewModel: TransactionsViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val monthScope = state.scope == HistoryScope.MONTH
+    LaunchedEffect(initialYear, initialMonth) {
+        if (initialYear != null && initialMonth != null && initialMonth in 1..12) {
+            viewModel.selectMonth(
+                com.fintracker.app.ui.util.DateFormatters.monthPeriod(initialYear, initialMonth)
+            )
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -208,47 +218,79 @@ fun TransactionsScreen(
 
             if (monthScope) {
                 stickyHeader(key = "filters") {
-                    LazyRow(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(MaterialTheme.colorScheme.background)
                             .padding(vertical = 4.dp)
                     ) {
-                        item {
-                            FilterChip(
-                                selected = state.typeFilter == null,
-                                onClick = { viewModel.setTypeFilter(null) },
-                                label = { ChipLabel("All") },
-                                modifier = Modifier.padding(end = 8.dp)
-                            )
+                        LazyRow {
+                            item {
+                                FilterChip(
+                                    selected = state.typeFilter == null,
+                                    onClick = { viewModel.setTypeFilter(null) },
+                                    label = { ChipLabel("All") },
+                                    modifier = Modifier.padding(end = 8.dp)
+                                )
+                            }
+                            items(TransactionType.entries) { type ->
+                                FilterChip(
+                                    selected = state.typeFilter == type,
+                                    onClick = {
+                                        viewModel.setTypeFilter(
+                                            if (state.typeFilter == type) null else type
+                                        )
+                                    },
+                                    label = {
+                                        ChipLabel(
+                                            type.name.lowercase()
+                                                .replaceFirstChar { it.uppercase() }
+                                        )
+                                    },
+                                    modifier = Modifier.padding(end = 8.dp)
+                                )
+                            }
+                            items(PaymentMode.entries.filter { it != PaymentMode.CASH }) { mode ->
+                                FilterChip(
+                                    selected = state.modeFilter == mode,
+                                    onClick = {
+                                        viewModel.setModeFilter(
+                                            if (state.modeFilter == mode) null else mode
+                                        )
+                                    },
+                                    label = { ChipLabel(paymentModeLabel(mode)) },
+                                    modifier = Modifier.padding(end = 8.dp)
+                                )
+                            }
                         }
-                        items(TransactionType.entries) { type ->
-                            FilterChip(
-                                selected = state.typeFilter == type,
-                                onClick = {
-                                    viewModel.setTypeFilter(
-                                        if (state.typeFilter == type) null else type
-                                    )
-                                },
-                                label = {
-                                    ChipLabel(
-                                        type.name.lowercase().replaceFirstChar { it.uppercase() }
-                                    )
-                                },
-                                modifier = Modifier.padding(end = 8.dp)
-                            )
-                        }
-                        items(PaymentMode.entries.filter { it != PaymentMode.CASH }) { mode ->
-                            FilterChip(
-                                selected = state.modeFilter == mode,
-                                onClick = {
-                                    viewModel.setModeFilter(
-                                        if (state.modeFilter == mode) null else mode
-                                    )
-                                },
-                                label = { ChipLabel(paymentModeLabel(mode)) },
-                                modifier = Modifier.padding(end = 8.dp)
-                            )
+                        LazyRow {
+                            item {
+                                FilterChip(
+                                    selected = state.categoryFilterId == null,
+                                    onClick = { viewModel.setCategoryFilter(null) },
+                                    label = { ChipLabel("All categories") },
+                                    modifier = Modifier.padding(end = 8.dp)
+                                )
+                            }
+                            items(
+                                state.categories.values.sortedBy { it.name },
+                                key = { it.id }
+                            ) { category ->
+                                FilterChip(
+                                    selected = state.categoryFilterId == category.id,
+                                    onClick = {
+                                        viewModel.setCategoryFilter(
+                                            if (state.categoryFilterId == category.id) {
+                                                null
+                                            } else {
+                                                category.id
+                                            }
+                                        )
+                                    },
+                                    label = { ChipLabel(category.name) },
+                                    modifier = Modifier.padding(end = 8.dp)
+                                )
+                            }
                         }
                     }
                 }
