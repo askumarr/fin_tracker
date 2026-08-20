@@ -18,6 +18,7 @@ rm -rf "$OUT" && mkdir -p "$OUT"
 "$KOTLINC" -classpath "$ANDROID_JAR:$CP_LIBS" -d "$OUT" \
   "$SRC/com/fintracker/app/domain/model/Enums.kt" \
   "$SRC/com/fintracker/app/domain/category/CategoryClassifier.kt" \
+  "$SRC/com/fintracker/app/domain/category/LocalCategoryLlm.kt" \
   "$SRC/com/fintracker/app/domain/sms/SmsModels.kt" \
   "$SRC/com/fintracker/app/domain/sms/SmsTemplateLoader.kt" \
   "$SRC/com/fintracker/app/domain/sms/SmsParseEngine.kt" \
@@ -26,6 +27,7 @@ rm -rf "$OUT" && mkdir -p "$OUT"
   "$SRC/com/fintracker/app/domain/statement/PdfTextExtractor.kt" \
   "$SRC/com/fintracker/app/domain/statement/CanaraPassbookTextParser.kt" \
   "$TEST/com/fintracker/app/domain/category/CategoryClassifierTest.kt" \
+  "$TEST/com/fintracker/app/domain/category/LocalCategoryLlmTest.kt" \
   "$TEST/com/fintracker/app/domain/sms/SmsParseEngineTest.kt" \
   "$TEST/com/fintracker/app/domain/dedupe/TransactionMatcherTest.kt" \
   "$TEST/com/fintracker/app/domain/statement/StatementImportTest.kt"
@@ -33,6 +35,7 @@ rm -rf "$OUT" && mkdir -p "$OUT"
 java -classpath "$OUT:$ANDROID_JAR:$CP_LIBS:$KOTLIN_STDLIB" \
   org.junit.runner.JUnitCore \
   com.fintracker.app.domain.category.CategoryClassifierTest \
+  com.fintracker.app.domain.category.LocalCategoryLlmTest \
   com.fintracker.app.domain.sms.SmsParseEngineTest \
   com.fintracker.app.domain.dedupe.TransactionMatcherTest \
   com.fintracker.app.domain.statement.StatementNarrationParserTest \

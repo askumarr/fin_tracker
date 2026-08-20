@@ -1,5 +1,6 @@
 package com.fintracker.app.data.repository
 
+import com.fintracker.app.data.UserPreferences
 import com.fintracker.app.data.dao.AccountDao
 import com.fintracker.app.data.dao.CategoryDao
 import com.fintracker.app.data.dao.ImportJobDao
@@ -12,6 +13,7 @@ import com.fintracker.app.data.entity.ImportJobEntity
 import com.fintracker.app.data.entity.MerchantCategoryRuleEntity
 import com.fintracker.app.data.entity.TransactionEntity
 import com.fintracker.app.domain.category.CategoryClassifier
+import com.fintracker.app.domain.category.LocalCategoryLlm
 import com.fintracker.app.domain.dedupe.TransactionMatcher
 import com.fintracker.app.domain.model.PaymentMode
 import com.fintracker.app.domain.model.ReviewStatus
@@ -21,6 +23,7 @@ import com.fintracker.app.domain.model.isStatement
 import com.fintracker.app.domain.sms.SmsParseEngine
 import com.fintracker.app.ui.util.DateFormatters
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.Locale
@@ -31,7 +34,8 @@ import javax.inject.Singleton
 class TransactionRepository @Inject constructor(
     private val transactionDao: TransactionDao,
     private val merchantCategoryRuleDao: MerchantCategoryRuleDao,
-    private val categoryDao: CategoryDao
+    private val categoryDao: CategoryDao,
+    private val preferences: UserPreferences
 ) {
     private val insertLock = Mutex()
     private val categoryIdByName = Mutex()
@@ -407,8 +411,38 @@ class TransactionRepository @Inject constructor(
             merchant = merchant,
             rawText = rawText,
             type = type
-        ) ?: return null
-        return categoryIdForName(suggestion.categoryName)
+        ) ?: if (preferences.localLlmEnabled.first()) {
+            LocalCategoryLlm.suggest(merchant, rawText, type)
+        } else {
+            null
+        } ?: return null
+        val id = categoryIdForName(suggestion.categoryName)
+        // Remember LLM/heuristic hits so the next similar merchant skips the scorer.
+        if (id != null && suggestion.confidence < 0.93f) {
+            rememberMerchantCategory(merchant, id)
+        }
+        return id
+    }
+
+    /**
+     * Fill categories on rows the keyword parser left blank, using the on-device scorer.
+     */
+    suspend fun recategorizeUncategorized(): Int {
+        if (!preferences.localLlmEnabled.first()) return 0
+        var filled = 0
+        for (txn in transactionDao.findUncategorized()) {
+            val id = suggestCategory(
+                merchant = txn.merchant,
+                rawText = listOfNotNull(txn.note, txn.rawSmsSnippet).joinToString(" ")
+                    .ifBlank { null },
+                type = txn.type
+            ) ?: continue
+            transactionDao.update(
+                txn.copy(categoryId = id, updatedAt = System.currentTimeMillis())
+            )
+            filled++
+        }
+        return filled
     }
 
     private suspend fun categoryIdForName(name: String): Long? {

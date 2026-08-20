@@ -217,6 +217,16 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions ORDER BY occurredAt DESC")
     suspend fun getAllForBackup(): List<TransactionEntity>
 
+    @Query(
+        """
+        SELECT * FROM transactions
+        WHERE categoryId IS NULL
+          AND reviewStatus != 'DISMISSED'
+        ORDER BY occurredAt DESC
+        """
+    )
+    suspend fun findUncategorized(): List<TransactionEntity>
+
     @Query("DELETE FROM transactions")
     suspend fun deleteAll()
 

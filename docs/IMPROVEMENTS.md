@@ -12,10 +12,11 @@
 8. **Recurring detection** — done: SIP/rent/EMI-style patterns (More → Recurring)
 9. **Smart categorization** — done: built-in India merchant keywords + normalized merchant learning on edit/review
 10. **Statement import** — done: Canara CSV auto-detect + Canara e-Passbook PDF
+11. **On-device AI categorizer** — done: tiny local scorer fills a category when keyword rules miss (More)
 
 ## Still open (later)
 
-- Smarter category ML / embeddings (beyond keyword + learned rules)
+- Optional on-device generative LLM (Gemma-class) — too large to ship in the APK today
 - More bank PDF layouts beyond Canara e-Passbook
 - Refund linking to original expense
 - More bank templates / merchant cleanup
@@ -32,3 +33,4 @@
 - After parser/dedupe upgrades: Backup → **Clear SMS entries & rebuild**, or **Merge same-day SMS duplicates**.
 - **Categories**: SMS/CSV auto-categorize via learned merchant rules, then built-in India keyword map (Amazon→Shopping, Swiggy→Food, …), then type heuristics (TRANSFER→Transfers, salary credits→Salary). Editing a category teaches the merchant root for next time.
 - **Import**: More → **Import statement**. Auto-import Canara CSV (skips preamble, strips Excel `="..."` cells, extracts UPI merchant from narration) or Canara e-Passbook PDF. CRED Club → Transfer.
+- **On-device AI**: keyword rules first; if they miss, a tiny local scorer (chicken stall → Food, petrol pump → Fuel, …) suggests a category and remembers the merchant. Toggle in More.

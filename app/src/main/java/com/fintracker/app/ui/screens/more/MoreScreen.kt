@@ -29,18 +29,49 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.fintracker.app.data.UserPreferences
+import com.fintracker.app.data.repository.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class MoreViewModel @Inject constructor(
-    private val preferences: UserPreferences
+    private val preferences: UserPreferences,
+    private val transactionRepository: TransactionRepository
 ) : ViewModel() {
     val autoCapture = preferences.autoCaptureEnabled
+    val localLlm = preferences.localLlmEnabled
+
+    private val _message = MutableStateFlow<String?>(null)
+    val message = _message.asStateFlow()
 
     fun setAutoCapture(enabled: Boolean) {
         viewModelScope.launch { preferences.setAutoCapture(enabled) }
+    }
+
+    fun setLocalLlm(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.setLocalLlmEnabled(enabled)
+            if (enabled) {
+                val n = transactionRepository.recategorizeUncategorized()
+                _message.value = if (n == 0) {
+                    "On-device categorizer on · new SMS will use it when rules miss"
+                } else {
+                    "On-device categorizer on · filled $n existing transaction(s)"
+                }
+            } else {
+                _message.value = "On-device categorizer off · keyword rules only"
+            }
+        }
+    }
+
+    fun recategorizeNow() {
+        viewModelScope.launch {
+            val n = transactionRepository.recategorizeUncategorized()
+            _message.value = "Filled $n uncategorized transaction(s)"
+        }
     }
 }
 
@@ -56,6 +87,8 @@ fun MoreScreen(
     viewModel: MoreViewModel = hiltViewModel()
 ) {
     val autoCapture by viewModel.autoCapture.collectAsStateWithLifecycle(initialValue = true)
+    val localLlm by viewModel.localLlm.collectAsStateWithLifecycle(initialValue = true)
+    val message by viewModel.message.collectAsStateWithLifecycle()
 
     Scaffold(topBar = { TopAppBar(title = { Text("More") }) }) { padding ->
         Column(
@@ -81,6 +114,42 @@ fun MoreScreen(
                 Switch(
                     checked = autoCapture,
                     onCheckedChange = viewModel::setAutoCapture
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("On-device AI categorizer", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Tiny local model fills a category when keyword rules miss. " +
+                            "Nothing is sent off the phone.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = localLlm,
+                    onCheckedChange = viewModel::setLocalLlm
+                )
+            }
+            if (localLlm) {
+                TextButton(
+                    onClick = viewModel::recategorizeNow,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                ) {
+                    Text("Fill uncategorized transactions")
+                }
+            }
+            message?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                 )
             }
             ListItem(

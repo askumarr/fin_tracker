@@ -20,6 +20,7 @@ class UserPreferences @Inject constructor(
     private val autoCaptureKey = booleanPreferencesKey("sms_auto_capture")
     private val onboardingDoneKey = booleanPreferencesKey("onboarding_done")
     private val lastScanAtKey = longPreferencesKey("last_sms_scan_at")
+    private val localLlmKey = booleanPreferencesKey("local_category_llm")
 
     val autoCaptureEnabled: Flow<Boolean> =
         context.dataStore.data.map { it[autoCaptureKey] ?: true }
@@ -27,12 +28,19 @@ class UserPreferences @Inject constructor(
     val onboardingDone: Flow<Boolean> =
         context.dataStore.data.map { it[onboardingDoneKey] ?: false }
 
+    val localLlmEnabled: Flow<Boolean> =
+        context.dataStore.data.map { it[localLlmKey] ?: true }
+
     suspend fun setAutoCapture(enabled: Boolean) {
         context.dataStore.edit { it[autoCaptureKey] = enabled }
     }
 
     suspend fun setOnboardingDone(done: Boolean = true) {
         context.dataStore.edit { it[onboardingDoneKey] = done }
+    }
+
+    suspend fun setLocalLlmEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[localLlmKey] = enabled }
     }
 
     suspend fun setLastScanAt(time: Long) {
